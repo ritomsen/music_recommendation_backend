@@ -131,7 +131,7 @@ class Tourney:
     
     def get_top_recommendations(self, n: int = 5) -> List[Tuple[Pool_Song, float]]:
         """
-        Get the top n songs with softmax probabilities.
+        Get the top n songs with temperature-based softmax probabilities.
         Returns a list of tuples (song, probability)
         """
         if not self.final_rankings:
@@ -152,9 +152,12 @@ class Tourney:
         # Apply softmax to convert scores to probabilities
         songs, scores = zip(*top_songs)
         
-        # Apply softmax function with numerical stability
+        # Temperature parameter (higher = more uniform distribution)
+        temperature = 2.0
+        
+        # Apply softmax function with temperature and numerical stability
         max_score = max(scores)
-        exp_scores = [math.exp(score - max_score) for score in scores]
+        exp_scores = [math.exp((score - max_score) / temperature) for score in scores]
         sum_exp_scores = sum(exp_scores)
         softmax_probs = [100 * (exp_score / sum_exp_scores) for exp_score in exp_scores]
         

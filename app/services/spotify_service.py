@@ -195,54 +195,38 @@ class SpotifyService:
         return results
     
     def get_user_saved_tracks(self, session_id: str) -> List[Dict]:
-        """Get a user's saved tracks with stratified random sampling"""
+        """Get a user's saved tracks using efficient section-based sampling"""
         spotify = self.get_user_spotify_client(session_id)
         if not spotify:
             return []
             
         # Get initial batch to determine total count
-        saved_tracks = spotify.current_user_saved_tracks(limit=50)
+        saved_tracks = spotify.current_user_saved_tracks(limit=1)
         total_saved_tracks = saved_tracks['total']
         
-        # Calculate the size of each third
-        third_size = total_saved_tracks // 3
-        first_third_end = third_size
-        second_third_end = third_size * 2
+        # Calculate section size (min of 50 or total/10)
+        section_size = min(50, total_saved_tracks // 10)
+        if section_size == 0:
+            section_size = 1  # Ensure we have at least 1 track per section
+            
+        # Calculate total number of sections
+        total_sections = math.ceil(total_saved_tracks / section_size)
         
-        # Calculate how many tracks to fetch from each third
-        first_third_sample_size = min(int(third_size * 0.2), 100)  # 20% of first third, max 100
-        second_third_sample_size = min(int(third_size * (1/3)), 165)  # 1/3 of second third, max 165
-        last_third_sample_size = min(int(third_size * (1/3)), 165)  # 1/3 of last third, max 165
+        # Randomly select 5 sections (or fewer if total_sections < 5)
+        num_sections_to_sample = min(5, total_sections)
+        selected_sections = random.sample(range(total_sections), num_sections_to_sample)
         
-        # Get all saved tracks (with pagination)
-        all_tracks = []
-        offset = 0
-        limit = 50  # Spotify API limit
-        
-        while offset < total_saved_tracks:
-            batch = spotify.current_user_saved_tracks(limit=limit, offset=offset)
-            all_tracks.extend(batch['items'])
-            offset += limit
-            # Break if we've fetched all tracks or if this is just for testing
-            if len(batch['items']) < limit:
-                break
-        
-        # Split tracks into three parts
-        first_third = all_tracks[:first_third_end] 
-        second_third = all_tracks[first_third_end:second_third_end] 
-        last_third = all_tracks[second_third_end:]
-        
-        # Sample from each third
-        sampled_first_third = random.sample(first_third, min(first_third_sample_size, len(first_third))) 
-        sampled_second_third = random.sample(second_third, min(second_third_sample_size, len(second_third))) 
-        sampled_last_third = random.sample(last_third, min(last_third_sample_size, len(last_third)))
-        
-        # Combine samples
-        sampled_tracks = sampled_first_third + sampled_second_third + sampled_last_third
+        # Get tracks from selected sections
+        all_sampled_tracks = []
+        for section in selected_sections:
+            offset = section * section_size
+            # Get tracks for this section
+            section_tracks = spotify.current_user_saved_tracks(limit=section_size, offset=offset)
+            all_sampled_tracks.extend(section_tracks['items'])
         
         # Convert to SpotifySong objects
         results = []
-        for track in sampled_tracks:
+        for track in all_sampled_tracks:
             # Default image if none available
             img_url = "https://via.placeholder.com/300"
             # Get image if available

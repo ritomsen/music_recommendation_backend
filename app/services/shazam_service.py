@@ -117,7 +117,15 @@ class ShazamService:
         except Exception as e:
             print(f"Error getting song details: {str(e)}")
             print(json.dumps(song_info, indent=2))
-            return None
+            return ShazamSong(
+                title="",
+                artist="",
+                album="",
+                key="",
+                img_link="",
+                genre="",
+                release_date=""
+            )
     async def search_and_get_song_details(self, track_name: str, artist_name: str) -> Optional[Dict[str, Any]]:
         """
         Search for a song and return its details.

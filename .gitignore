@@ -44,3 +44,6 @@ env/
 .venv
 tests/test_results/
 tests/spotify_results/
+
+out.txt
+.json
