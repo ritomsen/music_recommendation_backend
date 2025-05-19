@@ -12,6 +12,8 @@ class AIService:
         Analyze image using AI service
         """
         # TODO: Implement image analysis
+        prompt = ""
+        
         return {"mood": "happy", "genre": "rock"}
 
     async def analyze_audio(self, audio_data: bytes) -> dict:
@@ -32,3 +34,5 @@ class AIService:
         """
         # TODO: Implement recommendation logic
         return [] 
+    
+

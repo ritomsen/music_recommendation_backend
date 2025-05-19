@@ -39,3 +39,8 @@ env/
 
 # Local development
 .DS_Store
+
+.cache
+.venv
+tests/test_results/
+tests/spotify_results/
