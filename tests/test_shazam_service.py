@@ -1,4 +1,7 @@
 import asyncio
+import time
+
+import rapidfuzz
 from app.services.shazam_service import ShazamService
 
 async def test_get_song_details():
@@ -6,7 +9,7 @@ async def test_get_song_details():
     shazam_service = ShazamService()
     
     # First, let's search for a popular song to get its key
-    search_result = await shazam_service.search_and_get_song_details("Uptown Funk", "Bruno Mars")
+    search_result = await shazam_service.search_and_get_song_details("MVP", "Russ")
     
     if not search_result:
         print("Failed to find song in search")
@@ -23,5 +26,9 @@ async def test_get_song_details():
     print(f"Image URL: {search_result.img_link}")
     print(f"Shazam Key: {search_result.key}")
 
+    related_tracks = await shazam_service.get_related_tracks(search_result.key)
+    print(f"Related Tracks: {related_tracks}")
+
+    
 if __name__ == "__main__":
     asyncio.run(test_get_song_details()) 

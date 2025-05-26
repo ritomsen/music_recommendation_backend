@@ -62,6 +62,7 @@ class SpotifyService:
         
         # Let spotipy handle token validation and refresh
         if not self.validate_token(session_id):
+            print("Token is invalid, refreshing")
             if "refresh_token" in token_info:
                 token_info = auth_manager.refresh_access_token(token_info["refresh_token"])
                 self.user_tokens[session_id]["token_info"] = token_info
@@ -90,13 +91,14 @@ class SpotifyService:
         return auth_manager.validate_token(token_info)
    
 
-    def get_user_top_tracks(self, session_id: str, time_range: str = "medium_term") -> List[Dict]:
+    def get_user_top_tracks(self, session_id: str, time_range: str = "medium_term", limit: int = 50) -> List[Dict]:
         """Get a user's top tracks"""
         spotify = self.get_user_spotify_client(session_id)
         if not spotify:
+            print("No spotify client found")
             return []
         
-        track_results = spotify.current_user_top_tracks(time_range=time_range, limit=50)
+        track_results = spotify.current_user_top_tracks(time_range=time_range, limit=limit)
         results = []
         for track in track_results['items']:
             # Default image if none available
@@ -104,10 +106,15 @@ class SpotifyService:
             # Get image if available
             if track['album']['images'] and len(track['album']['images']) > 0:
                 img_url = track['album']['images'][0]['url']
+            artist = ""
+
+            for a in track['artists']:
+                artist += a['name'] + ", "
+            artist = artist[:-2]
 
             song = SpotifySong(
                 title=track['name'],
-                artist=track['artists'][0]['name'],
+                artist=artist,
                 album=track['album']['name'],
                 img_link=img_url, # 300x300
                 popularity_score=track['popularity'],
@@ -119,13 +126,13 @@ class SpotifyService:
             results.append(song)
         return results
 
-    def get_user_top_artists(self, session_id: str, time_range: str = "medium_term") -> List[Dict]:
+    def get_user_top_artists(self, session_id: str, time_range: str = "medium_term", limit: int = 20) -> List[Dict]:
         """Get a user's top artists"""
         spotify = self.get_user_spotify_client(session_id)
         if not spotify:
             return []
         
-        top_artists = spotify.current_user_top_artists(limit=20, time_range=time_range)
+        top_artists = spotify.current_user_top_artists(limit=limit, time_range=time_range)
         results = []
         for artist in top_artists['items']:
             artist = SpotifyArtist(
@@ -151,10 +158,14 @@ class SpotifyService:
             # Get image if available
             if track['album']['images'] and len(track['album']['images']) > 0:
                 img_url = track['album']['images'][0]['url']
+            artist = ""
+            for a in track['artists']:
+                artist += a['name'] + ", "
+            artist = artist[:-2]
                 
             song = SpotifySong(
                 title=track['name'],
-                artist=track['artists'][0]['name'],
+                artist=artist,
                 album=track['album']['name'],
                 img_link=img_url, # 300x300
                 popularity_score=track['popularity'],
@@ -179,10 +190,14 @@ class SpotifyService:
             # Get image if available
             if item['track']['album']['images'] and len(item['track']['album']['images']) > 0:
                 img_url = item['track']['album']['images'][0]['url']
-                
+            artist = ""
+            for a in item['track']['artists']:
+                artist += a['name'] + ", "
+            artist = artist[:-2]
+
             song = SpotifySong(
                 title=item['track']['name'],
-                artist=item['track']['artists'][0]['name'],
+                artist=artist,
                 album=item['track']['album']['name'],
                 img_link=img_url, # 300x300
                 popularity_score=item['track']['popularity'],
@@ -228,14 +243,17 @@ class SpotifyService:
         results = []
         for track in all_sampled_tracks:
             # Default image if none available
-            img_url = "https://via.placeholder.com/300"
+            img_url = ""
             # Get image if available
             if track['track']['album']['images'] and len(track['track']['album']['images']) > 0:
                 img_url = track['track']['album']['images'][0]['url']
-                
+            artist = ""
+            for a in track['track']['artists']:
+                artist += a['name'] + ", "
+            artist = artist[:-2]
             song = SpotifySong(
                 title=track['track']['name'],
-                artist=track['track']['artists'][0]['name'],
+                artist=artist,
                 album=track['track']['album']['name'],
                 img_link=img_url, # 300x300
                 popularity_score=track['track']['popularity'],
@@ -263,10 +281,14 @@ class SpotifyService:
                 # Get image if available
                 if album['album']['images'] and len(album['album']['images']) > 0:
                     img_url = album['album']['images'][0]['url']
-                    
+                artist = ""
+                for a in track['artists']:
+                    artist += a['name'] + ", "
+                artist = artist[:-2]
+
                 song = SpotifySong(
                     title=track['name'],
-                    artist=track['artists'][0]['name'],
+                    artist=artist,
                     album=album['album']['name'],
                     img_link=img_url, # 300x300
                     popularity_score=album['album']['popularity'],

@@ -1,31 +1,41 @@
+import json
 import random
-import threading
+import asyncio
 import concurrent.futures
 import math
 from typing import List, Dict, Callable, Any, Tuple
 from app.models.song import Pool_Song
+from app.services.open_ai_service import OpenAIService
+
 
 #TODO CHECK CODE because I think there are small optimizations that can be made
 
 class Tourney:
-    def __init__(self, pool: List[Pool_Song]):
+    def __init__(self, pool: List[Pool_Song], openai_service: OpenAIService, prompt_template: str):
         self.pool = pool
         self.song_scores: Dict[Pool_Song, List[float]] = {song: [] for song in pool}
         self.final_rankings: Dict[Pool_Song, float] = {}
+        self.openai_service = openai_service
+        self.prompt_template = prompt_template
+        print(f"Initialized tournament with {len(pool)} songs")
         
-    def _blackbox_compare(self, song1: Pool_Song, song2: Pool_Song) -> Pool_Song:
+    async def _blackbox_compare(self, song1: Pool_Song, song2: Pool_Song) -> Pool_Song:
         """
-        Placeholder for the AI service function that will decide which song wins.
-        Will be implemented later.
+        Use AI service to compare two songs and return the winner
         """
-        # This is just a placeholder - the actual implementation will be provided later
-        return song1  # Default return for now
+        print(f"Comparing songs: {song1.title} vs {song2.title}")
+        result = await self.openai_service.get_recommendation(song1, song2, self.prompt_template)
+        winner = song1 if result == 0 else song2
+        print(f"Winner: {winner.title}")
+        return winner
     
-    def _run_single_tourney(self, songs: List[Pool_Song], tourney_id: int) -> Dict[Pool_Song, int]:
+    async def _run_single_tourney(self, songs: List[Pool_Song], tourney_id: int) -> Dict[Pool_Song, int]:
         """Run a single tournament and return the placement of each song"""
         if not songs:
+            print(f"Tournament {tourney_id}: Empty song list provided")
             return {}
             
+        print(f"Starting tournament {tourney_id} with {len(songs)} songs")
         results = {}
         remaining_songs = songs.copy()
         
@@ -45,23 +55,19 @@ class Tourney:
                 else:
                     # If odd number of songs, one gets a bye to next round
                     next_round_songs.append(remaining_songs[i])
+                    print(f"Tournament {tourney_id} Round {round_num}: {remaining_songs[i].title} gets a bye")
             
-            # Run matchups in parallel
-            with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
-                future_to_matchup = {
-                    executor.submit(self._blackbox_compare, s1, s2): (s1, s2) 
-                    for s1, s2 in matchups
-                }
-                
-                for future in concurrent.futures.as_completed(future_to_matchup):
-                    s1, s2 = future_to_matchup[future]
-                    try:
-                        winner = future.result()
-                        next_round_songs.append(winner)
-                        loser = s2 if winner == s1 else s1
-                        eliminated_this_round.append(loser)
-                    except Exception as e:
-                        print(f"Error in matchup {s1.id} vs {s2.id}: {e}")
+            print(f"Tournament {tourney_id} Round {round_num}: {len(matchups)} matchups")
+            
+            # Run matchups concurrently using asyncio
+            tasks = [self._blackbox_compare(s1, s2) for s1, s2 in matchups]
+            winners = await asyncio.gather(*tasks)
+            
+            for (s1, s2), winner in zip(matchups, winners):
+                next_round_songs.append(winner)
+                loser = s2 if winner == s1 else s1
+                eliminated_this_round.append(loser)
+                print(f"Tournament {tourney_id} Round {round_num}: {winner.title} defeats {loser.title}")
             
             # Assign rounds reached to songs eliminated this round
             for song in eliminated_this_round:
@@ -74,6 +80,7 @@ class Tourney:
         # The last remaining song is the winner - it reached one round further
         if remaining_songs:
             results[remaining_songs[0]] = round_num + 1
+            print(f"Tournament {tourney_id} completed. Winner: {remaining_songs[0].title}")
             
         return results
     
@@ -82,39 +89,39 @@ class Tourney:
         Calculate a score based on how many rounds a song survived
         Higher scores for songs that reached later rounds
         """
-        # Use a smaller base for exponential growth and scale by total rounds
         return (1.5 ** rounds_reached) / total_rounds
     
-    def run_tourney(self) -> List[Tuple[Pool_Song, float]]:
-        """Run 8 tournaments in parallel and calculate the average score for each song"""
+    async def run_tourney(self) -> List[Tuple[Pool_Song, float]]:
+        """Run tournaments in parallel and calculate the average score for each song"""
         if not self.pool:
+            print("Empty pool provided for tournament")
             return []
             
-        tournament_futures = []
+        tournament_tasks = []
         total_rounds = math.ceil(math.log2(len(self.pool)))
-
-        # Launch 8 parallel tournaments with randomized song lists
-        with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
-            for i in range(8):
-                # Randomize the song list for this tournament
-                randomized_songs = self.pool.copy()
-                random.shuffle(randomized_songs)
-                print("Start of tournament", i, randomized_songs[0].title, randomized_songs[0].artist)
-                # Submit the tournament task
-                future = executor.submit(self._run_single_tourney, randomized_songs, i)
-                tournament_futures.append(future)
-            
-            # Collect results from all tournaments
-            for future in concurrent.futures.as_completed(tournament_futures):
-                try:
-                    tournament_results = future.result()
-                    
-                    # Convert rounds reached to scores and store them
-                    for song, rounds_reached in tournament_results.items():
-                        score = self._calculate_score(rounds_reached, total_rounds)
-                        self.song_scores[song].append(score)
-                except Exception as e:
-                    print(f"Error in tournament: {e}")
+        number_of_tournaments = 3
+        print(f"Starting {number_of_tournaments} tournaments with {len(self.pool)} songs")
+        
+        # Launch number_of_tournaments parallel tournaments with randomized song lists
+        for i in range(number_of_tournaments):
+            # Randomize the song list for this tournament
+            randomized_songs = self.pool.copy()
+            random.shuffle(randomized_songs)
+            print(f"Tournament {i} starting with seed song: {randomized_songs[0].title} by {randomized_songs[0].artist}")
+            # Submit the tournament task
+            task = asyncio.create_task(self._run_single_tourney(randomized_songs, i))
+            tournament_tasks.append(task)
+        
+        # Wait for all tournaments to complete
+        tournament_results = await asyncio.gather(*tournament_tasks)
+        print("All tournaments completed, processing results")
+        
+        # Process results from all tournaments
+        for results in tournament_results:
+            # Convert rounds reached to scores and store them
+            for song, rounds_reached in results.items():
+                score = self._calculate_score(rounds_reached, total_rounds)
+                self.song_scores[song].append(score)
         
         # Calculate average scores for each song
         for song, scores in self.song_scores.items():
@@ -125,7 +132,7 @@ class Tourney:
         
         n=5
         output = self.get_top_recommendations(n)
-
+        print(f"Tournament complete. Top {n} recommendations generated")
         
         return output
     
@@ -135,31 +142,39 @@ class Tourney:
         Returns a list of tuples (song, probability)
         """
         if not self.final_rankings:
-            self.run_tourney()
+            print("Attempted to get recommendations before running tournament")
+            raise RuntimeError("Must run tournament first")
             
         # Get the top n songs
         top_songs = sorted(
             self.final_rankings.items(),
             key=lambda x: x[1],
             reverse=True
-        )[:n]
+        )
+        print(f"Top song ALL SONGS: {top_songs}")
+        top_songs = top_songs[:n]
         
         if not top_songs:
+            print("No songs found in final rankings")
             return []
         
-        print("Top songs", top_songs)
+        print("Top songs by score: " + ", ".join([f"{song.title} ({score:.2f})" for song, score in top_songs]))
         
         # Apply softmax to convert scores to probabilities
         songs, scores = zip(*top_songs)
         
         # Temperature parameter (higher = more uniform distribution)
-        temperature = 2.0
+        temperature = 3.0
         
         # Apply softmax function with temperature and numerical stability
         max_score = max(scores)
         exp_scores = [math.exp((score - max_score) / temperature) for score in scores]
         sum_exp_scores = sum(exp_scores)
         softmax_probs = [100 * (exp_score / sum_exp_scores) for exp_score in exp_scores]
+        
+        # Log final probabilities
+        for song, prob in zip(songs, softmax_probs):
+            print(f"Final probability for {song.title}: {prob:.2f}%")
         
         # Return songs with their probabilities
         return list(zip(songs, softmax_probs))

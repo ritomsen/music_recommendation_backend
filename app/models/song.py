@@ -1,12 +1,4 @@
 from pydantic import BaseModel
-
-class SongResponse(BaseModel):
-    title: str
-    artist: str
-    album: str
-    spotify_link: str
-    img_link: str 
-
 class ShazamSong(BaseModel):
     title: str
     artist: str
@@ -39,9 +31,9 @@ class Pool_Song(BaseModel):
     album: str
     img_link: str 
     genre: str
-    description: str
     spotify_link: str
     popularity_score: int
+    duration_ms: int 
     release_date: str
     lyrics: str
     comes_from: str

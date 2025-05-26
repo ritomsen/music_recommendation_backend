@@ -1,3 +1,4 @@
+import rapidfuzz
 from shazamio import Shazam
 from typing import Optional, Dict, Any
 from app.models.song import ShazamSong
@@ -25,31 +26,38 @@ class ShazamService:
             Optional[Dict[str, Any]]: Song details if found, None otherwise
         """
         try:
+            cleaned_artist_name = artist_name.lower()
+            cleaned_track_name = re.sub(r'\([^)]*\)', '', track_name).strip().lower()
+
             # Search for the song
             search_results = await self.shazam.search_track(track_name + " " + artist_name)
-           
+            # print(json.dumps(search_results, indent=2))
             if not search_results or not search_results.get('tracks', {}).get('hits'):
+                print("Shazam Search: No Search Results", track_name, artist_name)
                 return None
-                
+            
+            hits = search_results['tracks']['hits']
+            titles_and_subtitles = []
+            for hit in hits:
+                titles_and_subtitles.append(hit.get('heading', {}).get('title', '').lower() + " " + hit.get('heading', {}).get('subtitle', '').lower())
             # Iterate through results until we find a close match
             result = None
-            
-            for hit in search_results['tracks']['hits']:
-                result_title = hit.get('heading', {}).get('title', '').lower()
-                result_subtitle = hit.get('heading', {}).get('subtitle', '').lower()
-                
-                cleaned_artist_name = artist_name.lower()
-                cleaned_track_name = re.sub(r'\([^)]*\)', '', track_name).strip().lower()
+            max_score = 0
+            max_ind = -1
+            for ind, query in enumerate(titles_and_subtitles):
+                score = rapidfuzz.fuzz.ratio(cleaned_track_name + " " + cleaned_artist_name, query)
+                if score > 20 and score > max_score:
+                    max_score = score
+                    max_ind = ind
 
-                
-                # Check if either title or subtitle contains our search terms
-                if self.match_song(cleaned_track_name, cleaned_artist_name, result_title, result_subtitle):
-                    result = hit
-                    break
+            if max_ind == -1:
+                print("Shazam Search: No Search Results Above Threshold", track_name, artist_name, titles_and_subtitles)
+                print(json.dumps(search_results, indent=2))
+                return None
+            result = hits[max_ind]
             
-            # If no match found, use first result as fallback
-            if result is None:
-                raise Exception("No match found")
+            print("Shazam Search Result:", track_name + " " + artist_name, "Result ->",titles_and_subtitles[max_ind], max_score, "list", titles_and_subtitles)
+
             # Extract relevant information
             song_details = {
                 'key': result.get('key'),
@@ -60,7 +68,7 @@ class ShazamService:
         except Exception as e:
             print(f"Error searching for song: {str(e)}")
             print(f"Searched for {track_name} by {artist_name}")
-            print(json.dumps(search_results, indent=2))
+            # print(json.dumps(search_results, indent=2))
             return None
 
     async def get_song_details(self, song_key: str) -> Optional[Dict[str, Any]]:
@@ -80,13 +88,10 @@ class ShazamService:
             if not song_info:
                 return None
                 
-            # Print raw response for testing
-            # print("Raw Shazam track_about response:")
-            # print(json.dumps(song_info, indent=2))
-                
+        
             # Extract relevant information
             # Album
-            album = None
+            album = ""
             if 'sections' in song_info:
                 for section in song_info['sections']:
                     if section.get('type') == 'SONG':
@@ -96,10 +101,12 @@ class ShazamService:
                                 break
             # Artwork
             images = song_info.get('images', {})
-            artwork_url = images.get('coverart')
+            artwork_url = images.get('coverart', "")
 
             # Genre
-            genre = song_info.get('genres', {}).get('primary') 
+            genre = song_info.get('genres', {}).get('primary') if song_info.get('genres', {}).get('primary') else ""
+            # print("Shazam Song Info:", song_info.get('title'), song_info.get('subtitle'), genre)
+
             # Build details dict
             shazam_song = ShazamSong(
                 title=song_info.get('title'),
@@ -115,8 +122,7 @@ class ShazamService:
             return shazam_song
             
         except Exception as e:
-            print(f"Error getting song details: {str(e)}")
-            print(json.dumps(song_info, indent=2))
+            print(f"Error getting song details: {str(e)} {json.dumps(song_info, indent=2)}")
             return ShazamSong(
                 title="",
                 artist="",
@@ -138,6 +144,7 @@ class ShazamService:
             # Search for the song
             search_results = await self.search_song(track_name, artist_name)
             if search_results == None:
+                print("Shazam Search: (Search and get) No Search Results", track_name, artist_name)
                 return ShazamSong(
                     title = track_name,
                     artist = artist_name,
@@ -156,17 +163,19 @@ class ShazamService:
     async def get_related_tracks(self, key: str) -> Optional[Dict[str, Any]]:
         try:
             related_tracks = await self.shazam.related_tracks(key)
+            # print(f"Related Tracks: {json.dumps(related_tracks, indent=2)}")
             songs = []
             for track in related_tracks['tracks']:
-                album = None
+                album = ""
                 if 'sections' in track:
                     for section in track['sections']:
                         if section.get('type') == 'SONG':
                             for meta in section.get('metadata', []):
                                 if meta.get('title', '').lower() == 'album':
                                     album = meta.get('text')
+                
                 cover_art = track.get('images', {}).get('coverart')
-                genre = track.get('genres', {}).get('primary')
+                genre = track.get('genres', {}).get('primary', "")
                 shazam_song = ShazamSong(
                     title=track.get('title'),
                     artist=track.get('subtitle'),
@@ -174,13 +183,12 @@ class ShazamService:
                     img_link=cover_art,
                     genre=genre,
                     key=track.get('key'),
-                    release_date=track.get('releasedate')
+                    release_date=track.get('releasedate', "")
                 )
                 songs.append(shazam_song)
             return songs
         except Exception as e:
             print(f"Error getting related tracks: {str(e)}")
             return None
-        
-    def match_song(self, track_name: str, artist_name: str, result_title: str, result_subtitle: str) -> bool:
-        return (track_name in result_title and (artist_name in result_subtitle or artist_name in result_title))
+    
+    

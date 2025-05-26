@@ -3,9 +3,9 @@ from fastapi.responses import RedirectResponse, JSONResponse
 from app.services.spotify_service import SpotifyService
 from app.core.config import settings
 from typing import Dict, Optional
+from app.services.service_instances import spotify_service
 
 router = APIRouter()
-spotify_service = SpotifyService()
 
 @router.get("/login")
 async def spotify_login():
@@ -37,6 +37,7 @@ async def check_auth(session_id: Optional[str] = None):
     """
     Check if a user is authenticated with Spotify
     """
+    print(f"[/check-auth] endpoint hit with session_id: {session_id}")
     if not session_id:
         return JSONResponse({"authenticated": False, "message": "No session ID provided"})
     

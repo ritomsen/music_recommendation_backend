@@ -5,6 +5,8 @@ import json
 import time
 from datetime import datetime
 
+from app.rec_service.recommendation import RecommendationService
+
 
 # Add the parent directory to the Python path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -34,7 +36,7 @@ def save_results_to_json(pool, filename):
 def print_pool_summary(pool, source=None):
     """Print a summary of the songs in the pool"""
     for i, song in enumerate(pool, 1):
-        print(f"{i}. {song.title} by {song.artist} ({song.genre}) {song.comes_from}")
+        print(f"{i}. {song.title} by {song.artist} ({song.genre}) {song.comes_from} {song.lyrics[:100]}")
     print(f"\n=== Total songs in pool: {len(pool)} ===")
     sources = {}
     for song in pool:
@@ -83,10 +85,13 @@ async def test_candidate_pool_with_real_spotify():
     # Step 1: Authenticate with Spotify
     session_id, spotify_service = run_spotify_auth()
     
+    # recommendation_service = RecommendationService()
+    # image_data = open("tests/test.jpg", "rb").read()
+    # await recommendation_service.get_image_analysis(image_data, session_id, spotify_service)
+
     # Step 2: Create a CandidatePool with some genres
     genres = ["rap"]
-    location = "US"
-    pool = CandidatePool(genres, location, session_id, spotify_service)
+    pool = CandidatePool(genres, session_id, spotify_service)
     
     # # Step 3: Add songs from top artists
     # print("\nAdding songs from your top artists...")
@@ -121,19 +126,19 @@ async def test_candidate_pool_with_real_spotify():
 
     # Step 8: Print overall summary
     print("\n=== FINAL RESULTS ===")
-    print_pool_summary(pool.get_pool())
+    pool.print_pool()
     
     # Step 9: Save results to a JSON file
-    save_results_to_json(pool.get_pool(), "candidate_pool_results")
+    # save_results_to_json(pool.get_pool(), "candidate_pool_results")
 
 
   
-    tourney = Tourney(pool.get_pool())
-    start = time.time()
-    output = tourney.run_tourney()
-    end = time.time()
-    print(f"Time taken Tourney: {end - start} seconds")
-    print_tourney_results(output)
+    # tourney = Tourney(pool.get_pool())
+    # start = time.time()
+    # output = tourney.run_tourney()
+    # end = time.time()
+    # print(f"Time taken Tourney: {end - start} seconds")
+    # print_tourney_results(output)
 
 
 
