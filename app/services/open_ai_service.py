@@ -9,6 +9,8 @@ from app.services.ai_service import AIService
 from app.core.config import settings
 import base64
 import io
+from PIL import Image
+import pillow_heif
 
 class OpenAIService(AIService):
     def __init__(self):
@@ -17,6 +19,23 @@ class OpenAIService(AIService):
         self.model = "gpt-4.1-nano"  # Using the fastest advanced model
         self.prompts_dir = Path(__file__).parent.parent / "prompts"
         
+    def _is_heic(self, image_data: bytes) -> bool:
+        """Check if the image data is in HEIC format"""
+        return image_data.startswith(b'\x00\x00\x00\x20\x66\x74\x79\x70\x68\x65\x69\x63')
+
+    def _convert_heic_to_jpeg(self, image_data: bytes) -> bytes:
+        """Convert HEIC image data to JPEG format"""
+        heif_file = pillow_heif.read_heif(image_data)
+        image = Image.frombytes(
+            heif_file.mode, 
+            heif_file.size, 
+            heif_file.data,
+            "raw",
+        )
+        jpeg_buffer = io.BytesIO()
+        image.save(jpeg_buffer, format="JPEG")
+        return jpeg_buffer.getvalue()
+
     def _load_prompt(self, prompt_file: str) -> str:
         """Load prompt template from file"""
         print(f"Loading prompt from file: {prompt_file}")
@@ -30,6 +49,12 @@ class OpenAIService(AIService):
         print("Starting image analysis")
         prompt = self._load_prompt("image_analysis.txt")
         prompt = prompt.format(top_songs=track_titles_and_artists, top_artists=artist_names)
+        
+        # Check if image is HEIC and convert if needed
+        if self._is_heic(image_data):
+            print("Converting HEIC image to JPEG")
+            image_data = self._convert_heic_to_jpeg(image_data)
+        
         # Encode image data as base64
         base64_image = base64.b64encode(image_data).decode('utf-8')
         print("Image encoded to base64")
@@ -73,7 +98,7 @@ class OpenAIService(AIService):
             print(f"Successfully parsed image analysis: {analysis}")
             return {
                 "mood": analysis.get("mood", "neutral"),
-                "genres": analysis.get("genres", "unknown"),
+                "genres": analysis.get("genres", []),
                 "energy_level": analysis.get("energy_level", "medium"),
                 "musical_characteristics": analysis.get("musical_characteristics", {})
             }
@@ -155,25 +180,21 @@ class OpenAIService(AIService):
         Get song recommendations based on analyzed features
         """
         print("Starting song recommendation analysis")
-        print(f"Comparing songs: {song_1.title} vs {song_2.title}")
+        # print(f"Comparing songs: {song_1.title} vs {song_2.title}")
         
         # Format the prompt with song details
         try:
             prompt = prompt_template.format(
                 song1_title=song_1.title,
                 song1_artist=song_1.artist,
-                song1_genre=song_1.genre,
                 song1_popularity=song_1.popularity_score,
                 song1_duration=song_1.duration_ms,
                 song1_release_date=song_1.release_date,
-                song1_comes_from=song_1.comes_from,
                 song2_title=song_2.title,
                 song2_artist=song_2.artist,
-                song2_genre=song_2.genre,
                 song2_popularity=song_2.popularity_score,
                 song2_duration=song_2.duration_ms,
                 song2_release_date=song_2.release_date,
-                song2_comes_from=song_2.comes_from
             )
             print("Prompt formatted with song details")
         except Exception as e:
@@ -192,8 +213,10 @@ class OpenAIService(AIService):
                     "content": 
                     """ Provide your response in JSON with the following structure: 
                     { 
+                        "song_1_analysis": "One sentence analysis of song 1",
+                        "song_2_analysis": "One sentence analysis of song 2",
                         "winner": "1" or "2",
-                        "reason": "Explanation of why the winning song is better, max 2 sentences"
+                        "reason": "One sentence explanation of why the winning song is better"
                     } """
                 }
             ],
@@ -201,7 +224,7 @@ class OpenAIService(AIService):
             max_tokens=1000
         )
         print("Received response from OpenAI for song recommendation")
-        print(f"Raw response content: {response.choices[0].message.content}")
+        print(f"Raw response content for {song_1.title} vs {song_2.title}: {response.choices[0].message.content}")
         
         try:
             analysis = json.loads(response.choices[0].message.content)
@@ -217,6 +240,54 @@ class OpenAIService(AIService):
             # Fallback to simple parsing if JSON parsing fails
             recommendation = response.choices[0].message.content.strip()
             print(f"Using fallback parsing for content: {recommendation}")
-            return 0 if "song1" in recommendation.lower() else 1
+            return 0 if "1" in recommendation.lower() else 1
     
+    async def generate_user_context(
+        self,
+        name: str,
+        top_songs_short: list,
+        top_songs_medium: list,
+        top_songs_long: list,
+        top_artists_short: list,
+        top_artists_medium: list,
+        top_artists_long: list,
+        recently_played: list
+    ) -> dict:
+        """
+        Generate a user context summary using the LLM and the user_context prompt.
+        """
+        prompt = self._load_prompt("user_context.txt")
+        # Format the prompt with user data (convert lists to comma-separated strings or JSON as needed)
+        prompt = prompt.format(
+            top_songs_short=top_songs_short,
+            top_songs_medium=top_songs_medium,
+            top_songs_long=top_songs_long,
+            top_artists_short=top_artists_short,
+            top_artists_medium=top_artists_medium,
+            top_artists_long=top_artists_long,
+            recently_played=recently_played
+        )
+        print("Prompt for user context", prompt)
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "user", "content": prompt},
+                {"role": "user", "content": """
+                Respond ONLY with a valid JSON object in the following format:
+                {
+                    "description": "<2-3 sentence summary of their music tastes and tendencies>",
+                    "genres": ["<genre1>", "<genre2>", ...]
+                }"""}
+            ],
+            response_format={"type": "json_object"},
+            max_tokens=500
+        )
+        try:
+            user_context = json.loads(response.choices[0].message.content)
+            return user_context
+        except Exception as e:
+            print(f"Failed to parse user context JSON: {e}")
+            print(f"Raw content: {response.choices[0].message.content}")
+            return {}
+
 

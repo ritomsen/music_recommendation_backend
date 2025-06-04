@@ -54,22 +54,16 @@ class RecommendationService:
                 audio_analysis=audio_analysis.replace("{", "{{").replace("}", "}}"),
                 song1_title="{song1_title}",
                 song1_artist="{song1_artist}",
-                song1_genre="{song1_genre}",
-                song1_description="{song1_description}",
                 song1_popularity="{song1_popularity}",
                 song1_release_date="{song1_release_date}",
                 song1_duration="{song1_duration}",
-                song1_comes_from="{song1_comes_from}",
                 song2_title="{song2_title}",
                 song2_artist="{song2_artist}",
-                song2_genre="{song2_genre}",
-                song2_description="{song2_description}",
                 song2_popularity="{song2_popularity}",
                 song2_release_date="{song2_release_date}",
                 song2_duration="{song2_duration}",
-                song2_comes_from="{song2_comes_from}"
             )
-            print("Prompt template prepared and cached")
+            print("Prompt template prepared and cached", self.prompt_template)
             return self.prompt_template
         except Exception as e:
             print("RITOM SEN ERROR")
@@ -79,12 +73,13 @@ class RecommendationService:
     async def get_image_analysis(self, image_data: bytes, session_id: str):
         print("Getting image analysis")
         top_20_songs, top_20_artists = await asyncio.gather(
-            spotify_service.get_user_top_tracks(session_id, time_range="medium_term", limit=20),
-            spotify_service.get_user_top_artists(session_id, time_range="medium_term", limit=20)
+            spotify_service.get_user_top_tracks(session_id, time_range="long_term", limit=20, album_mode=False),
+            spotify_service.get_user_top_artists(session_id, time_range="long_term", limit=20)
         )
+        print("Got Top 20 Songs and Artists")
         track_titles_and_artists = [f"{song.title} - {song.artist}" for song in top_20_songs]
         artist_names = [artist.name for artist in top_20_artists]
-
+        print("Got Track Titles and Artists")
         self.image_analysis = await self.open_ai_service.analyze_image(image_data, track_titles_and_artists, artist_names)
         print(f"Image analysis received: {self.image_analysis}")
 
@@ -102,11 +97,46 @@ class RecommendationService:
         self.location_weather_analysis = await self.weather_service.get_current_weather(lat, lon)
         print(f"Weather analysis received: {self.location_weather_analysis}")
 
-    async def get_user_context(self):
+    async def get_user_context(self, session_id: str):
         print("Getting user context")
-        # TODO: Implement user context gathering
-        self.user_context = {"name": "Ritom Sen"}
-        print("User context initialized")
+        # Fetch all user data in parallel
+        (
+            top_songs_short,
+            top_songs_medium,
+            top_songs_long,
+            top_artists_short,
+            top_artists_medium,
+            top_artists_long,
+            recently_played
+        ) = await asyncio.gather(
+            spotify_service.get_user_top_tracks(session_id, time_range="short_term", limit=10, album_mode=False),
+            spotify_service.get_user_top_tracks(session_id, time_range="medium_term", limit=10, album_mode=False),
+            spotify_service.get_user_top_tracks(session_id, time_range="long_term", limit=10, album_mode=False),
+            spotify_service.get_user_top_artists(session_id, time_range="short_term", limit=10),
+            spotify_service.get_user_top_artists(session_id, time_range="medium_term", limit=10),
+            spotify_service.get_user_top_artists(session_id, time_range="long_term", limit=10),
+            spotify_service.get_user_recently_played(session_id, limit=10)
+        )
+
+        # Prepare data for the LLM (convert objects to strings or dicts as needed)
+        def song_list_to_str(song_list):
+            return [f"{song.title} - {song.artist}" for song in song_list]
+        def artist_list_to_str(artist_list):
+            return [artist.name for artist in artist_list]
+
+        user_name = "User"  # Replace with actual user name if available
+        user_context = await self.open_ai_service.generate_user_context(
+            name=user_name,
+            top_songs_short=song_list_to_str(top_songs_short),
+            top_songs_medium=song_list_to_str(top_songs_medium),
+            top_songs_long=song_list_to_str(top_songs_long),
+            top_artists_short=artist_list_to_str(top_artists_short),
+            top_artists_medium=artist_list_to_str(top_artists_medium),
+            top_artists_long=artist_list_to_str(top_artists_long),
+            recently_played=song_list_to_str(recently_played)
+        )
+        self.user_context = user_context
+        print("User context initialized", self.user_context)
 
     async def prepare(self, image_data: bytes, audio_data: bytes, location: str, session_id: str):
         """
@@ -118,7 +148,7 @@ class RecommendationService:
             self.get_image_analysis(image_data, session_id),
             self.get_audio_analysis(audio_data),
             self.get_location_weather_analysis(location),
-            self.get_user_context()
+            self.get_user_context(session_id)
         ]
         
         # Run all tasks concurrently
@@ -143,8 +173,8 @@ class RecommendationService:
         print("Finding recommendations")
         # Use the cached prompt template
         prompt_template = self.prepare_prompt_template()
-        tourney = Tourney(candidate_pool, self.open_ai_service, prompt_template)
-        recommendations = await tourney.run_tourney()
+        tourney = Tourney(candidate_pool, self.open_ai_service, prompt_template, num_tournaments=3)
+        recommendations = await tourney.run_tourney(num_recommendations=5)
         print(f"Found {len(recommendations)} recommendations")
         return recommendations
     

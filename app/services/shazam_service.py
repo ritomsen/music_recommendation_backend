@@ -1,7 +1,7 @@
 import rapidfuzz
 from shazamio import Shazam
 from typing import Optional, Dict, Any
-from app.models.song import ShazamSong
+from app.models.song import ShazamSong, Pool_Song
 import asyncio
 import json
 import re
@@ -163,7 +163,7 @@ class ShazamService:
     async def get_related_tracks(self, key: str) -> Optional[Dict[str, Any]]:
         try:
             related_tracks = await self.shazam.related_tracks(key)
-            # print(f"Related Tracks: {json.dumps(related_tracks, indent=2)}")
+            print(f"Related Tracks: {json.dumps(related_tracks, indent=2)}")
             songs = []
             for track in related_tracks['tracks']:
                 album = ""
@@ -176,14 +176,17 @@ class ShazamService:
                 
                 cover_art = track.get('images', {}).get('coverart')
                 genre = track.get('genres', {}).get('primary', "")
-                shazam_song = ShazamSong(
+                shazam_song = Pool_Song(
+                    spotify_link=track.get('url'),
                     title=track.get('title'),
                     artist=track.get('subtitle'),
                     album=album,
                     img_link=cover_art,
-                    genre=genre,
-                    key=track.get('key'),
-                    release_date=track.get('releasedate', "")
+                    release_date="",
+                    popularity_score=None,
+                    duration_ms=None,
+                    lyrics="",
+                    genre=genre
                 )
                 songs.append(shazam_song)
             return songs
@@ -191,4 +194,21 @@ class ShazamService:
             print(f"Error getting related tracks: {str(e)}")
             return None
     
-    
+    async def search_and_get_related_tracks(self, track_name: str, artist_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Search for a song and return its related tracks.
+        
+        Args:
+            track_name (str): The name of the track
+            artist_name (str): The name of the artist
+        """
+        try:
+            search_results = await self.search_song(track_name, artist_name)
+            if search_results == None:
+                print("Shazam Search: (Search and get related) No Search Results", track_name, artist_name)
+                return []
+            related_tracks = await self.get_related_tracks(search_results['key'])
+            return related_tracks
+        except Exception as e:
+            print(f"Error searching and getting related tracks: {str(e)}")
+            return []

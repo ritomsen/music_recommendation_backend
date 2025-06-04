@@ -11,12 +11,13 @@ from app.services.open_ai_service import OpenAIService
 #TODO CHECK CODE because I think there are small optimizations that can be made
 
 class Tourney:
-    def __init__(self, pool: List[Pool_Song], openai_service: OpenAIService, prompt_template: str):
+    def __init__(self, pool: List[Pool_Song], openai_service: OpenAIService, prompt_template: str, num_tournaments: int = 3):
         self.pool = pool
         self.song_scores: Dict[Pool_Song, List[float]] = {song: [] for song in pool}
         self.final_rankings: Dict[Pool_Song, float] = {}
         self.openai_service = openai_service
         self.prompt_template = prompt_template
+        self.num_tournaments = num_tournaments
         print(f"Initialized tournament with {len(pool)} songs")
         
     async def _blackbox_compare(self, song1: Pool_Song, song2: Pool_Song) -> Pool_Song:
@@ -91,7 +92,7 @@ class Tourney:
         """
         return (1.5 ** rounds_reached) / total_rounds
     
-    async def run_tourney(self) -> List[Tuple[Pool_Song, float]]:
+    async def run_tourney(self, num_recommendations: int = 5) -> List[Tuple[Pool_Song, float]]:
         """Run tournaments in parallel and calculate the average score for each song"""
         if not self.pool:
             print("Empty pool provided for tournament")
@@ -99,7 +100,7 @@ class Tourney:
             
         tournament_tasks = []
         total_rounds = math.ceil(math.log2(len(self.pool)))
-        number_of_tournaments = 3
+        number_of_tournaments = self.num_tournaments
         print(f"Starting {number_of_tournaments} tournaments with {len(self.pool)} songs")
         
         # Launch number_of_tournaments parallel tournaments with randomized song lists
@@ -130,9 +131,8 @@ class Tourney:
             else:
                 self.final_rankings[song] = 0
         
-        n=5
-        output = self.get_top_recommendations(n)
-        print(f"Tournament complete. Top {n} recommendations generated")
+        output = self.get_top_recommendations(num_recommendations)
+        print(f"Tournament complete. Top {num_recommendations} recommendations generated")
         
         return output
     
@@ -164,7 +164,7 @@ class Tourney:
         songs, scores = zip(*top_songs)
         
         # Temperature parameter (higher = more uniform distribution)
-        temperature = 3.0
+        temperature = 5.0
         
         # Apply softmax function with temperature and numerical stability
         max_score = max(scores)

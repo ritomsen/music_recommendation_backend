@@ -22,6 +22,6 @@ Consider the following aspects in detail:
    - Cultural references and their musical implications
    - Overall artistic direction
 
-Keep the User's top artists and top songs over a medium term in mind when providing your analysis to keep it contextually relevant
+Keep the User's top artists and top songs over a year period in mind when providing your analysis to keep it contextually relevant
 Top Songs: {top_songs}
 Top Artists: {top_artists}

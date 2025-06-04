@@ -1,0 +1,16 @@
+Given the following user music data, generate a JSON summary describing their musical tastes, favorite genres, and listening tendencies.
+
+User Data:
+- Top Songs (last 4 weeks): {top_songs_short}
+- Top Songs (last 6 months): {top_songs_medium}
+- Top Songs (last year): {top_songs_long}
+- Top Artists (last 4 weeks): {top_artists_short}
+- Top Artists (last 6 months): {top_artists_medium}
+- Top Artists (last year): {top_artists_long}
+- Recently Played: {recently_played}
+
+Instructions:
+1. Analyze the data to infer the user's music preferences, favorite genres, and listening habits.
+2. Write a concise 2-3 sentence description of their tastes.
+3. List their favorite genres.
+

@@ -1,10 +1,11 @@
 #!/usr/bin/env python
+import random
 import sys
 from pathlib import Path
 import json
 import time
 from datetime import datetime
-
+from app.services.service_instances import spotify_service
 from app.rec_service.recommendation import RecommendationService
 
 
@@ -36,26 +37,13 @@ def save_results_to_json(pool, filename):
 def print_pool_summary(pool, source=None):
     """Print a summary of the songs in the pool"""
     for i, song in enumerate(pool, 1):
-        print(f"{i}. {song.title} by {song.artist} ({song.genre}) {song.comes_from} {song.lyrics[:100]}")
+        print(f"{i}. {song.title} by {song.artist} ({song.genre})")
     print(f"\n=== Total songs in pool: {len(pool)} ===")
-    sources = {}
-    for song in pool:
-        sources[song.comes_from] = sources.get(song.comes_from, 0) + 1
-    
-    for source, count in sources.items():
-        print(f"- {source}: {count} songs")
-    
-    genres = {}
-    for song in pool:
-        genres[song.genre] = genres.get(song.genre, 0) + 1
-    
-    print("\n=== Genre distribution ===")
-    for genre, count in sorted(genres.items(), key=lambda x: x[1], reverse=True):
-        print(f"- {genre}: {count} songs")
+
+
 
 def run_spotify_auth():
     """Run the Spotify authentication flow and return a session ID"""
-    spotify_service = SpotifyService()
     
     # Get the authorization URL
     auth_data = spotify_service.get_auth_url()
@@ -117,28 +105,29 @@ async def test_candidate_pool_with_real_spotify():
     # print("\nAdding songs from your saved albums...")
     # pool.add_saved_album_tracks()
     # print_pool_summary(pool.get_pool(), "saved_albums")
-    
+    recommendation_service = RecommendationService()
+
     # Step 8: Add songs in parallel
     start = time.time()
-    await pool.add_songs_parallel()
+    candidate_pool = await recommendation_service.make_candidate_pool(session_id)
     end = time.time()
     print(f"Time taken Candidate Pool: {end - start} seconds")
 
-    # Step 8: Print overall summary
-    print("\n=== FINAL RESULTS ===")
-    pool.print_pool()
+
+    # # Step 9: Save results to a JSON file
+    # # save_results_to_json(pool.get_pool(), "candidate_pool_results")
+
+    # max_size = 100
+    # if len(candidate_pool) > max_size:
+    #     print(f"Shuffling candidate pool from {len(candidate_pool)} to {max_size}")
+    #     random.shuffle(candidate_pool)
+    #     candidate_pool = candidate_pool[:max_size]
     
-    # Step 9: Save results to a JSON file
-    # save_results_to_json(pool.get_pool(), "candidate_pool_results")
-
-
-  
-    # tourney = Tourney(pool.get_pool())
     # start = time.time()
-    # output = tourney.run_tourney()
+    # output = await recommendation_service.find_recommendations(candidate_pool)
     # end = time.time()
     # print(f"Time taken Tourney: {end - start} seconds")
-    # print_tourney_results(output)
+    # print(output)
 
 
 

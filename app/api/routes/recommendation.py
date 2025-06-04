@@ -60,7 +60,7 @@ async def get_song_recommendations(
             )
             print("Finished preparing recommendation service")
             time_prepare_end = time.time()
-
+            print("Prepare Time", time_prepare_end - time_prepare_start)
             time_make_candidate_pool_start = time.time()
             # Create candidate pool based on analyzed features
             candidate_pool = await recommendation_service.make_candidate_pool(
@@ -69,13 +69,13 @@ async def get_song_recommendations(
 
             # MIGHT NEED TO REMOVE THIS
             # MAKES IT SO I DON"T HAVE TO BIG OF A TOURNAMENT
-            max_size = 175
+            max_size = 75
             if len(candidate_pool) > max_size:
                 print(f"Shuffling candidate pool from {len(candidate_pool)} to {max_size}")
                 random.shuffle(candidate_pool)
                 candidate_pool = candidate_pool[:max_size]
             time_make_candidate_pool_end = time.time()
-
+            print("Candidate Pool Time", time_make_candidate_pool_end - time_make_candidate_pool_start)
             time_find_recommendations_start = time.time()
             # Get recommendations using the candidate pool
             recommendations = await recommendation_service.find_recommendations(candidate_pool)

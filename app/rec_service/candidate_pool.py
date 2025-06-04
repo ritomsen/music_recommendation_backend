@@ -1,3 +1,4 @@
+import random
 from typing import List
 from app.models.song import Pool_Song
 from app.services.service_instances import (
@@ -5,6 +6,7 @@ from app.services.service_instances import (
     shazam_service,
     # spotify_service,
 )
+from app.models.song import ShazamSong
 from app.services.spotify_service import SpotifyService
 import asyncio
 
@@ -27,105 +29,63 @@ class CandidatePool:
         print(f"Number of Songs in Pool: {len(self.pool)}")
         for index, song in enumerate(self.pool):
             filtered_genre = "0 Genre Found" if song.genre == "" else song.genre
-            print(f"Song {index} in pool: {song.title} {song.artist} {filtered_genre} {song.comes_from}")
+            print(f"Song {index} in pool: {song.title} {song.artist} {filtered_genre}")
 
-    async def _process_track(self, track, comes_from):
-        # Check if song already exists without needing the lock
-        track_key = track.title + " " + track.artist
-        if track.duration_ms >= 600000 or track_key in self.set_pool:
-            print(f"Skipping track {track.title} - Duration too long or already in pool")
-            return
+    async def _add_tracks_to_pool(self, tracks: List[Pool_Song], comes_from: str):
+        """
+        Add a batch of tracks to the pool with thread safety.
+        Filters out tracks that are too long or already in the pool.
+        """
+        # # Filter tracks before acquiring the lock
+        # valid_tracks = []
+        # for track in tracks:
+        #     track_key = track.title + " " + track.artist
+        #     if track.duration_ms < 600000 and track_key not in self.set_pool:
+        #         valid_tracks.append(track)
         
-        print(f"Processing track: {track.title} by {track.artist}")
+        # if not valid_tracks:
+        #     return
         
-        # Fetch lyrics and song details in parallel
-        shazam_task = self.shazam.search_and_get_song_details(track.title, track.artist)
-        genius_task = self.genius.search_song(track.title, track.artist)
-        
-        shazam_song, genius_result = await asyncio.gather(shazam_task, genius_task)
-        
-        lyrics = genius_result.get("lyrics", "") if genius_result else ""
-        
-        if shazam_song and self.check_genre_match([shazam_song.genre], True):
-            new_song = Pool_Song(
-                title=track.title,
-                artist=track.artist,
-                album=track.album,
-                genre=shazam_song.genre,
-                img_link=track.img_link,
-                popularity_score=track.popularity_score,
-                spotify_link=track.spotify_link,
-                release_date=track.release_date,
-                duration_ms=track.duration_ms,
-                lyrics=lyrics,
-                comes_from=comes_from
-            )
-            
-            # Use lock when modifying shared data structures
-            async with self.lock:
+        # Use lock when modifying shared data structures
+        async with self.lock:
+            for track in tracks:
+                track_key = track.title + " " + track.artist
                 # Double-check that the song wasn't added by another task
-                if track_key not in self.set_pool:
-                    self.pool.append(new_song)
+                if track.duration_ms < 600000 and track_key not in self.set_pool: # Maybe add popularity > 20
+                    self.pool.append(track)
                     self.set_pool.add(track_key)
-                    print(f"Added new song to pool: {track.title} by {track.artist}")
+                    print(f"Added new song to pool: {track.title} by {track.artist} from {comes_from}")
+
+    async def _process_artist_tracks(self, artist):
+        """Process tracks for a single artist in parallel"""
+        if self.check_genre_match(artist.genres, False):
+            print(f"Processing artist: {artist.name} - genre matched")
+            top_tracks = await self.spotify.get_artist_top_tracks(self.session_id, artist.artist_id, limit=5)
+            if top_tracks:
+                await self._add_tracks_to_pool(top_tracks, "top_artists")
         else:
-            print(f"Track {track.title} did not match genre criteria")
+            print(f"Artist {artist.name} genre didn't match. Artist genres: {artist.genres}, Pool genres: {self.genres}")
 
-    async def add_top_user_artists_tracks(self):
+    async def add_top_user_artists_tracks(self, time_range: str = "medium_term", limit: int = 20):
         print("Fetching top user artists tracks")
-        top_artists = await asyncio.to_thread(self.spotify.get_user_top_artists, self.session_id)
-        tasks = []
-        for artist in top_artists:
-            # I KNOW ARTISTS CAN HAVE MULTIPLE GENRES SO THIS MIGHT NOT BE GOOD
-            if self.check_genre_match(artist.genres, False): 
-                print(f"Processing artist: {artist.name} - genre matched")
-                top_tracks = await asyncio.to_thread(self.spotify.get_artist_top_tracks, self.session_id, artist.artist_id)
-                for track in top_tracks:
-                    tasks.append(self._process_track(track, "top_artists"))
-            else:
-                print(f"Artist {artist.name} genre didn't match. Artist genres: {artist.genres}, Pool genres: {self.genres}")
-        if tasks:
-            await asyncio.gather(*tasks)
+        top_artists = await self.spotify.get_user_top_artists(self.session_id, time_range, limit)
+        
+        # Process all artists in parallel
+        tasks = [self._process_artist_tracks(artist) for artist in top_artists]
+        await asyncio.gather(*tasks)
 
-    async def add_top_user_tracks(self):
+    async def add_top_user_tracks(self, time_range: str = "medium_term", album_mode: bool = False, limit: int = 50, num_albums: int = 2):
         print("Fetching top user tracks")
-        top_tracks = await asyncio.to_thread(self.spotify.get_user_top_tracks, self.session_id)
-        tasks = []
-        for track in top_tracks:
-            tasks.append(self._process_track(track, "top_tracks"))
-        
-        if tasks:
-            await asyncio.gather(*tasks)
-
-    async def add_recently_played_tracks(self):
-        print("Fetching recently played tracks")
-        recently_played = await asyncio.to_thread(self.spotify.get_user_recently_played, self.session_id)
-        tasks = []
-        for track in recently_played:
-            tasks.append(self._process_track(track, "recently_played"))
-        
-        if tasks:
-            await asyncio.gather(*tasks)
-
-    async def add_saved_tracks(self):
+        top_tracks = await self.spotify.get_user_top_tracks(self.session_id, time_range=time_range, album_mode=album_mode, limit=limit, num_albums=num_albums)
+        if top_tracks:
+            await self._add_tracks_to_pool(top_tracks, "top_tracks")
+            
+            
+    async def add_saved_tracks(self, num_sections: int = 3, top_tracks_mode: bool = False, num_top_track_artists: int = 10):
         print("Fetching saved tracks")
-        saved_tracks = await asyncio.to_thread(self.spotify.get_user_saved_tracks, self.session_id)
-        tasks = []
-        for track in saved_tracks:
-            tasks.append(self._process_track(track, "saved_tracks"))
-        
-        if tasks:
-            await asyncio.gather(*tasks)
-
-    async def add_saved_album_tracks(self):
-        print("Fetching saved album tracks")
-        tracks = await asyncio.to_thread(self.spotify.get_user_saved_albums, self.session_id)
-        tasks = []
-        for track in tracks:
-            tasks.append(self._process_track(track, "saved_albums"))
-        
-        if tasks:
-            await asyncio.gather(*tasks)
+        saved_tracks = await self.spotify.get_user_saved_tracks(self.session_id, num_sections, top_tracks_mode, num_top_track_artists)
+        if saved_tracks:
+            await self._add_tracks_to_pool(saved_tracks, "saved_tracks")
 
     async def add_songs_parallel(self):
         """
@@ -133,17 +93,27 @@ class CandidatePool:
         This is more efficient than calling them sequentially.
         """
         print("Starting parallel song addition process")
-        await asyncio.gather(
-            self.add_top_user_artists_tracks(),
-            self.add_top_user_tracks(),
-            self.add_recently_played_tracks(),
-            self.add_saved_tracks(),
-            self.add_saved_album_tracks()
-        )
+        tasks = [
+            self.add_top_user_artists_tracks(time_range="medium_term", limit=20), # 20 * 5 = 100
+            self.add_top_user_tracks(time_range="medium_term", album_mode=True, limit=50, num_albums=2), # 50 + ~25 = ~75 
+            self.add_saved_tracks(num_sections=3, top_tracks_mode=True, num_top_track_artists=5),  # 150 + 25 = ~175
+            #Total 325ish
+        ]
+        
+        # Use asyncio.gather with return_exceptions=True to handle errors gracefully
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Log any errors that occurred
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                print(f"Error in task {i}: {str(result)}")
+                
         print("Completed parallel song addition process")
 
     def check_genre_match(self, genres: list[str], isSong: bool):
         #TODO NEED TO FIX THIS
+        if len(self.genres) == 0:
+            return True
         if not isSong and (len(genres) == 0 or genres[0]==""):
             print("No genres found for Artist")
             return True
