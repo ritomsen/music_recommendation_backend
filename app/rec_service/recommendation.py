@@ -1,5 +1,6 @@
 from app.rec_service.candidate_pool import CandidatePool
 from app.rec_service.tourney import Tourney
+from app.genetic_algo.genetic import GeneticAlgorithm
 from app.services.service_instances import (
     spotify_service,
     openai_service,
@@ -176,5 +177,48 @@ class RecommendationService:
         tourney = Tourney(candidate_pool, self.open_ai_service, prompt_template, num_tournaments=3)
         recommendations = await tourney.run_tourney(num_recommendations=5)
         print(f"Found {len(recommendations)} recommendations")
+        return recommendations
+
+    async def find_recommendations_genetic(self, candidate_pool: list[Pool_Song]):
+        """
+        Find recommendations using genetic algorithm approach.
+        
+        Args:
+            candidate_pool: List of Pool_Song objects to choose from
+            num_recommendations: Number of recommendations to return
+            
+        Returns:
+            List of recommended Pool_Song objects
+        """
+        print("Finding recommendations using genetic algorithm")
+        
+        # Initialize genetic algorithm with current context
+        genetic_algo = GeneticAlgorithm(
+            candidate_pool=candidate_pool,
+            population_size=50,  # Smaller population for faster convergence
+            mutation_rate=0.1,
+            generations=12,  # Fewer generations since we're doing multiple runs
+            weather_data=self.location_weather_analysis,
+            user_context=self.user_context,
+            image_analysis=self.image_analysis
+        )
+        
+        # Run multiple genetic algorithm iterations to get diverse recommendations
+        recommendations = []
+        seen_songs = set()
+        num_recommendations = 1
+        for i in range(num_recommendations):
+            best_song = await genetic_algo.run()
+            
+            # If we haven't seen this song before, add it to recommendations
+            if best_song not in seen_songs:
+                recommendations.append((best_song, 1.0))
+                seen_songs.add(best_song)
+            
+            # If we've found enough unique recommendations, break
+            if len(recommendations) >= num_recommendations:
+                break
+        
+        print(f"Found {len(recommendations)} recommendations using genetic algorithm")
         return recommendations
     

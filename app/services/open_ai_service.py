@@ -276,7 +276,7 @@ class OpenAIService(AIService):
                 Respond ONLY with a valid JSON object in the following format:
                 {
                     "description": "<2-3 sentence summary of their music tastes and tendencies>",
-                    "genres": ["<genre1>", "<genre2>", ...]
+                    "genres": ["<genre1>", "<genre2>", ...],
                 }"""}
             ],
             response_format={"type": "json_object"},
@@ -291,3 +291,38 @@ class OpenAIService(AIService):
             return {}
 
 
+    async def generate_fitness_scores(self, song: Pool_Song, weather_data: dict, user_context: dict, image_analysis: dict):
+        prompt = self._load_prompt("fit_func.txt")
+        prompt = prompt.format(
+            song_title=song.title,
+            song_artist=song.artist,
+            song_popularity=song.popularity_score,
+            song_duration=song.duration_ms,
+            song_release_date=song.release_date,
+            weather_data=weather_data,
+            user_context=user_context,
+            image_analysis=image_analysis
+        )
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt},
+                      {"role": "user", "content": """
+                      Provide your response in JSON with the following structure:
+                      {
+                        "contextual_relevance_score": <0-100>,
+                        "musical_quality_score": <0-100>,
+                        "fitness_score": <0-100>,
+                        "reasoning": "<1 sentence summary on why the scores were assigned>"
+                      }
+                      """}],
+            response_format={"type": "json_object"},
+            max_tokens=1000
+        )
+        try:
+            json_data = json.loads(response.choices[0].message.content)
+            fitness_score = json_data.get("fitness_score", 0)
+            return fitness_score
+        except Exception as e:
+            print(f"Failed to parse fitness scores JSON: {e}")
+            print(f"Raw content: {response.choices[0].message.content}")
+            return 0

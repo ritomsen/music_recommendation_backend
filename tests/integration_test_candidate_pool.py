@@ -129,6 +129,12 @@ async def test_candidate_pool_with_real_spotify():
     # print(f"Time taken Tourney: {end - start} seconds")
     # print(output)
 
+    start = time.time()
+    output = await recommendation_service.find_recommendations_genetic(candidate_pool)
+    end = time.time()
+    print(f"Time taken Genetic: {end - start} seconds")
+    print(output)
+
 
 
 if __name__ == "__main__":
