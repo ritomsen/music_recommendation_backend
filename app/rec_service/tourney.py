@@ -5,27 +5,33 @@ import concurrent.futures
 import math
 from typing import List, Dict, Callable, Any, Tuple
 from app.models.song import Pool_Song
-from app.services.open_ai_service import OpenAIService
-
+from app.services.service_instances import openai_service, gemini_service
 
 #TODO CHECK CODE because I think there are small optimizations that can be made
 
 class Tourney:
-    def __init__(self, pool: List[Pool_Song], openai_service: OpenAIService, prompt_template: str, num_tournaments: int = 3):
+    def __init__(self, pool: List[Pool_Song], prompt_template: str, num_tournaments: int = 3, use_alternating_services: bool = True):
         self.pool = pool
         self.song_scores: Dict[Pool_Song, List[float]] = {song: [] for song in pool}
         self.final_rankings: Dict[Pool_Song, float] = {}
-        self.openai_service = openai_service
         self.prompt_template = prompt_template
         self.num_tournaments = num_tournaments
+        self.use_alternating_services = use_alternating_services
         print(f"Initialized tournament with {len(pool)} songs")
         
-    async def _blackbox_compare(self, song1: Pool_Song, song2: Pool_Song) -> Pool_Song:
+    async def _blackbox_compare(self, song1: Pool_Song, song2: Pool_Song, use_openai: bool) -> Pool_Song:
         """
         Use AI service to compare two songs and return the winner
+        Args:
+            song1: First song to compare
+            song2: Second song to compare
+            use_openai: True to use OpenAI, False to use Gemini
         """
         print(f"Comparing songs: {song1.title} vs {song2.title}")
-        result = await self.openai_service.get_recommendation(song1, song2, self.prompt_template)
+        service = openai_service if use_openai else gemini_service
+        print(f"Using {'OpenAI' if use_openai else 'Gemini'} service for comparison")
+            
+        result = await service.get_recommendation(song1, song2, self.prompt_template)
         winner = song1 if result == 0 else song2
         print(f"Winner: {winner.title}")
         return winner
@@ -61,9 +67,22 @@ class Tourney:
             print(f"Tournament {tourney_id} Round {round_num}: {len(matchups)} matchups")
             
             # Run matchups concurrently using asyncio
-            tasks = [self._blackbox_compare(s1, s2) for s1, s2 in matchups]
+            if self.use_alternating_services:
+                # Alternate between services for each comparison
+                tasks = [
+                    self._blackbox_compare(s1, s2, (i % 2 == 0)) 
+                    for i, (s1, s2) in enumerate(matchups)
+                ]
+            else:
+                # Use Gemini 
+                tasks = [
+                    self._blackbox_compare(s1, s2, use_openai=False) 
+                    for s1, s2 in matchups
+                ]
+            
             winners = await asyncio.gather(*tasks)
             
+            #TODO I think there is a more optimal way to do this
             for (s1, s2), winner in zip(matchups, winners):
                 next_round_songs.append(winner)
                 loser = s2 if winner == s1 else s1
@@ -90,6 +109,10 @@ class Tourney:
         Calculate a score based on how many rounds a song survived
         Higher scores for songs that reached later rounds
         """
+        #TODO Make 1.5 a number I can change apart of class
+        #1.5, for exponential weighting, so each round increases score by more
+        # Rewarding Late round survivals 
+        # Dividing by Total Rounds normalizes across diff tourney sizes 
         return (1.5 ** rounds_reached) / total_rounds
     
     async def run_tourney(self, num_recommendations: int = 5) -> List[Tuple[Pool_Song, float]]:
@@ -105,7 +128,7 @@ class Tourney:
         
         # Launch number_of_tournaments parallel tournaments with randomized song lists
         for i in range(number_of_tournaments):
-            # Randomize the song list for this tournament
+            # Randomize the song list for this tournament for diff match-ups
             randomized_songs = self.pool.copy()
             random.shuffle(randomized_songs)
             print(f"Tournament {i} starting with seed song: {randomized_songs[0].title} by {randomized_songs[0].artist}")
@@ -124,7 +147,7 @@ class Tourney:
                 score = self._calculate_score(rounds_reached, total_rounds)
                 self.song_scores[song].append(score)
         
-        # Calculate average scores for each song
+        # Calculate average scores for each song over tourneys
         for song, scores in self.song_scores.items():
             if scores:  # Ensure the song participated in at least one tournament
                 self.final_rankings[song] = sum(scores) / len(scores)
@@ -164,6 +187,9 @@ class Tourney:
         songs, scores = zip(*top_songs)
         
         # Temperature parameter (higher = more uniform distribution)
+        #TODO make this a parameter I can change/decide easier
+        # Just need a number that makes the "probabilities" sound realistic
+        # and not too one sided
         temperature = 5.0
         
         # Apply softmax function with temperature and numerical stability

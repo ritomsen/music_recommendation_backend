@@ -1,3 +1,4 @@
+import asyncio
 from typing import List, Optional, Dict
 import os
 import json
@@ -11,7 +12,9 @@ import base64
 import io
 from PIL import Image
 import pillow_heif
+import magic  # Add this import for better file type detection
 
+#TODO Make an virtual class that gemini and open ai inherit from 
 class OpenAIService(AIService):
     def __init__(self):
         print("Initializing OpenAIService")
@@ -20,21 +23,47 @@ class OpenAIService(AIService):
         self.prompts_dir = Path(__file__).parent.parent / "prompts"
         
     def _is_heic(self, image_data: bytes) -> bool:
-        """Check if the image data is in HEIC format"""
-        return image_data.startswith(b'\x00\x00\x00\x20\x66\x74\x79\x70\x68\x65\x69\x63')
+        """Check if the image data is in HEIC format using magic numbers"""
+        try:
+            mime = magic.Magic(mime=True)
+            file_type = mime.from_buffer(image_data)
+            return file_type in ['image/heic', 'image/heif']
+        except Exception as e:
+            print(f"Error detecting HEIC format: {e}")
+            # Fallback to checking magic numbers
+            return image_data.startswith(b'\x00\x00\x00\x20\x66\x74\x79\x70\x68\x65\x69\x63') or \
+                   image_data.startswith(b'\x00\x00\x00\x18\x66\x74\x79\x70\x68\x65\x69\x63')
 
     def _convert_heic_to_jpeg(self, image_data: bytes) -> bytes:
-        """Convert HEIC image data to JPEG format"""
-        heif_file = pillow_heif.read_heif(image_data)
-        image = Image.frombytes(
-            heif_file.mode, 
-            heif_file.size, 
-            heif_file.data,
-            "raw",
-        )
-        jpeg_buffer = io.BytesIO()
-        image.save(jpeg_buffer, format="JPEG")
-        return jpeg_buffer.getvalue()
+        """Convert HEIC image data to JPEG format with proper error handling"""
+        try:
+            # Read HEIC file
+            heif_file = pillow_heif.read_heif(image_data)
+            
+            # Convert to PIL Image
+            image = Image.frombytes(
+                heif_file.mode, 
+                heif_file.size, 
+                heif_file.data,
+                "raw",
+            )
+            
+            # Convert to RGB if needed (handles RGBA and other color spaces)
+            if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
+                background = Image.new('RGB', image.size, (255, 255, 255))
+                background.paste(image, mask=image.split()[-1] if image.mode == 'RGBA' else None)
+                image = background
+            elif image.mode != 'RGB':
+                image = image.convert('RGB')
+            
+            # Save as JPEG with quality settings
+            jpeg_buffer = io.BytesIO()
+            image.save(jpeg_buffer, format="JPEG", quality=95, optimize=True)
+            return jpeg_buffer.getvalue()
+            
+        except Exception as e:
+            print(f"Error converting HEIC to JPEG: {e}")
+            raise ValueError(f"Failed to convert HEIC image: {str(e)}")
 
     def _load_prompt(self, prompt_file: str) -> str:
         """Load prompt template from file"""
@@ -53,7 +82,7 @@ class OpenAIService(AIService):
         # Check if image is HEIC and convert if needed
         if self._is_heic(image_data):
             print("Converting HEIC image to JPEG")
-            image_data = self._convert_heic_to_jpeg(image_data)
+            image_data = await asyncio.to_thread(self._convert_heic_to_jpeg, image_data)
         
         # Encode image data as base64
         base64_image = base64.b64encode(image_data).decode('utf-8')

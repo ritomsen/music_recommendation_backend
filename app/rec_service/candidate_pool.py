@@ -51,20 +51,21 @@ class CandidatePool:
             for track in tracks:
                 track_key = track.title + " " + track.artist
                 # Double-check that the song wasn't added by another task
-                if track.duration_ms < 600000 and track_key not in self.set_pool: # Maybe add popularity > 20
+                # Make sure it isn't super long, likely not a normal song
+                if track.duration_ms < 600000 and track_key not in self.set_pool: #TODO Maybe add popularity > 20
                     self.pool.append(track)
                     self.set_pool.add(track_key)
                     print(f"Added new song to pool: {track.title} by {track.artist} from {comes_from}")
 
     async def _process_artist_tracks(self, artist):
         """Process tracks for a single artist in parallel"""
-        if self.check_genre_match(artist.genres, False):
-            print(f"Processing artist: {artist.name} - genre matched")
-            top_tracks = await self.spotify.get_artist_top_tracks(self.session_id, artist.artist_id, limit=5)
-            if top_tracks:
-                await self._add_tracks_to_pool(top_tracks, "top_artists")
-        else:
-            print(f"Artist {artist.name} genre didn't match. Artist genres: {artist.genres}, Pool genres: {self.genres}")
+        # if self.check_genre_match(artist.genres, False):
+        print(f"Processing artist: {artist.name} - genre matched")
+        top_tracks = await self.spotify.get_artist_top_tracks(self.session_id, artist.artist_id, limit=5)
+        if top_tracks:
+            await self._add_tracks_to_pool(top_tracks, "top_artists")
+        # else:
+        #     print(f"Artist {artist.name} genre didn't match. Artist genres: {artist.genres}, Pool genres: {self.genres}")
 
     async def add_top_user_artists_tracks(self, time_range: str = "medium_term", limit: int = 20):
         print("Fetching top user artists tracks")
@@ -94,10 +95,13 @@ class CandidatePool:
         """
         print("Starting parallel song addition process")
         tasks = [
-            self.add_top_user_artists_tracks(time_range="medium_term", limit=20), # 20 * 5 = 100
-            self.add_top_user_tracks(time_range="medium_term", album_mode=True, limit=50, num_albums=2), # 50 + ~25 = ~75 
-            self.add_saved_tracks(num_sections=3, top_tracks_mode=True, num_top_track_artists=5),  # 150 + 25 = ~175
-            #Total 325ish
+            self.add_top_user_artists_tracks(time_range="medium_term", limit=20), # 20 artists * 5 songs each = 100
+            self.add_top_user_tracks(time_range="medium_term", album_mode=True, limit=50, num_albums=2), # 50 songs + ~25 ish songs from 2 albums = ~75 
+            self.add_saved_tracks(num_sections=3, top_tracks_mode=True, num_top_track_artists=5),  
+            # 150  + 25 = ~175
+            # Each section max 50 songs
+            # Sample 5 songs from 5 random artists
+            #Total 350ish
         ]
         
         # Use asyncio.gather with return_exceptions=True to handle errors gracefully

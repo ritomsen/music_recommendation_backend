@@ -68,7 +68,8 @@ async def get_song_recommendations(
             )
 
             # MIGHT NEED TO REMOVE THIS
-            # MAKES IT SO I DON"T HAVE TO BIG OF A TOURNAMENT
+            # MAKES IT SO I DON"T HAVE TOO BIG OF A TOURNAMENT
+            #TODO Make this a flag or parameter I can choose on frontend
             max_size = 75
             if len(candidate_pool) > max_size:
                 print(f"Shuffling candidate pool from {len(candidate_pool)} to {max_size}")

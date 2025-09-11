@@ -3,8 +3,10 @@ import random
 import asyncio
 from collections import Counter
 from app.models.song import Pool_Song
-from app.services.service_instances import openai_service
+from app.services.service_instances import openai_service, gemini_service
 
+#TODO Can create some sort of stop condition instead of having a fixed # of generations
+#TODO Edit to run multiple times in parallel for multiple song recs
 class GeneticAlgorithm:
     def __init__(
         self,
@@ -14,7 +16,8 @@ class GeneticAlgorithm:
         generations: int = 10,
         weather_data: dict = None,
         user_context: dict = None,
-        image_analysis: dict = None
+        image_analysis: dict = None,
+        use_openai: bool = True
     ):
         self.candidate_pool = candidate_pool
         self.population_size = population_size
@@ -26,7 +29,7 @@ class GeneticAlgorithm:
         self.user_context = user_context
         self.image_analysis = image_analysis
         self.fitness_cache: Dict[str, float] = {}  # Cache for fitness scores using song ID as key
-
+        self.use_openai = use_openai
     def print_population(self):
         for index, song in enumerate(self.current_population):
             print(f"#{index}: {song.title} by {song.artist}, Fitness score: {self.fitness_scores.get(song, 'N/A')}")
@@ -41,7 +44,10 @@ class GeneticAlgorithm:
         
         # If not in cache, compute the score
         print(f"Cache miss for song {song.title} by {song.artist}")
-        fitness_score = await openai_service.generate_fitness_scores(song, self.weather_data, self.user_context, self.image_analysis)
+        if self.use_openai:
+            fitness_score = await openai_service.generate_fitness_scores(song, self.weather_data, self.user_context, self.image_analysis)
+        else:
+            fitness_score = await gemini_service.generate_fitness_scores(song, self.weather_data, self.user_context, self.image_analysis)
         print(f"Fitness score for song {song.title} by {song.artist}: {fitness_score}")
         # Store in cache
         self.fitness_cache[song_id] = fitness_score
@@ -63,14 +69,21 @@ class GeneticAlgorithm:
         # Update fitness scores dictionary
         self.fitness_scores = {song: score for song, score in results}
     async def _select_survivors(self) -> List[Pool_Song]:
-        """Select top 50% of songs based on fitness"""
+        """Select top 50% of songs based on fitness, or random 50% if all scores are equal"""
+        #TODO Make 50 percent something I can change
         # Sort songs by their fitness scores
         sorted_songs = sorted(
             self.current_population,
             key=lambda song: self.fitness_scores.get(song, float('-inf')),
             reverse=True
         )
-        # Take top 50%
+        
+        # Check if all scores are equal
+        if self.fitness_scores[sorted_songs[0]] == self.fitness_scores[sorted_songs[-1]]:
+            # If all scores are equal, randomly select 50%
+            return random.sample(sorted_songs, len(sorted_songs)//2)
+            
+        # Otherwise take top 50%
         return sorted_songs[:len(sorted_songs)//2]
 
     def _mutate_song(self, song: Pool_Song) -> Pool_Song:

@@ -145,17 +145,18 @@ class RecommendationService:
         """
         print("Starting parallel data preparation")
         # Create tasks for parallel execution
+
         tasks = [
+            self.get_location_weather_analysis(location),
             self.get_image_analysis(image_data, session_id),
             self.get_audio_analysis(audio_data),
-            self.get_location_weather_analysis(location),
             self.get_user_context(session_id)
         ]
         
         # Run all tasks concurrently
         await asyncio.gather(*tasks)
         print("All analysis tasks completed")
-        
+
         # After all analyses are complete, prepare the prompt template
         self.prepare_prompt_template()
 
@@ -174,7 +175,7 @@ class RecommendationService:
         print("Finding recommendations")
         # Use the cached prompt template
         prompt_template = self.prepare_prompt_template()
-        tourney = Tourney(candidate_pool, self.open_ai_service, prompt_template, num_tournaments=3)
+        tourney = Tourney(candidate_pool, prompt_template, num_tournaments=3, use_alternating_services=False)
         recommendations = await tourney.run_tourney(num_recommendations=5)
         print(f"Found {len(recommendations)} recommendations")
         return recommendations
@@ -195,18 +196,19 @@ class RecommendationService:
         # Initialize genetic algorithm with current context
         genetic_algo = GeneticAlgorithm(
             candidate_pool=candidate_pool,
-            population_size=50,  # Smaller population for faster convergence
-            mutation_rate=0.1,
+            population_size=30,  # Smaller population for faster convergence
+            mutation_rate=0.15,
             generations=12,  # Fewer generations since we're doing multiple runs
             weather_data=self.location_weather_analysis,
             user_context=self.user_context,
-            image_analysis=self.image_analysis
+            image_analysis=self.image_analysis,
+            use_openai=False
         )
         
         # Run multiple genetic algorithm iterations to get diverse recommendations
         recommendations = []
         seen_songs = set()
-        num_recommendations = 1
+        num_recommendations = 1 #TODO Make genetic algo run multiple times in parallel
         for i in range(num_recommendations):
             best_song = await genetic_algo.run()
             

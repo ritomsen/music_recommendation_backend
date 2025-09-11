@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     GENIUS_ACCESS_TOKEN: str
     GOOGLE_MAPS_KEY: str
     
+    GEMINI_API_KEY: str
+    
     model_config = ConfigDict(
         case_sensitive=True,
         env_file=".env",

@@ -108,7 +108,7 @@ class SpotifyService:
             time_range=time_range,
             limit=MAX_LIMIT
         )
-        if limit < MAX_LIMIT:
+        if limit < MAX_LIMIT and len(track_results['items']) >= limit:
             sampled_tracks = random.sample(track_results['items'], limit)
         else:
             sampled_tracks = track_results['items']
@@ -176,7 +176,7 @@ class SpotifyService:
             limit=MAX_LIMIT,
             time_range=time_range
         )
-        if limit < MAX_LIMIT:
+        if limit < MAX_LIMIT and len(top_artists['items']) >= limit:
             sampled_artists = random.sample(top_artists['items'], limit)
         else:
             sampled_artists = top_artists['items']
@@ -195,7 +195,7 @@ class SpotifyService:
         return results
     
     async def get_artist_top_tracks(self, session_id: str, artist_id: str, limit: int = 10) -> List[Dict]:
-        """Get a user's top tracks"""
+        """Get a artist's top tracks"""
         spotify = self.get_user_spotify_client(session_id)
         if not spotify:
             return []

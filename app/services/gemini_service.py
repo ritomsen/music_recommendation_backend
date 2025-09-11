@@ -2,18 +2,22 @@ from typing import List, Optional, Dict
 import os
 import json
 from pathlib import Path
-import google.generativeai as genai
+from google import genai
+from google.genai import types
+
 from app.models.song import Pool_Song
 from app.services.ai_service import AIService
+from app.core.config import settings
 import base64
 import io
 
+#TODO Make an virtual class that gemini and open ai inherit from 
 class GeminiService(AIService):
     def __init__(self):
         print("Initializing GeminiService")
-        genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-        self.model = genai.GenerativeModel('gemini-pro')
-        self.vision_model = genai.GenerativeModel('gemini-pro-vision')
+        self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        self.model = 'gemini-2.5-flash-preview-05-20'
+        self.vision_model = 'gemini-2.5-flash-preview-05-20'
         self.prompts_dir = Path(__file__).parent.parent / "prompts"
         
     def _load_prompt(self, prompt_file: str) -> str:
@@ -35,7 +39,7 @@ class GeminiService(AIService):
         print("Image encoded to base64")
         print(prompt)
 
-        response = await self.vision_model.generate_content_async([
+        response = await self.client.models.generate_content([
             prompt,
             """ Please provide your analysis in JSON format with the following structure:
             {
@@ -50,8 +54,16 @@ class GeminiService(AIService):
             }
 
             Focus on how these visual elements translate into specific musical characteristics and provide concrete musical suggestions. """,
-            {"mime_type": "image/jpeg", "data": image_data}
-        ])
+            {"mime_type": "image/jpeg", "data": image_data}],
+            model=self.vision_model,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                thinking_config=types.ThinkingConfig(
+                    include_thoughts=False,
+                    thinkingBudget=0
+                )
+            )
+        )
         
         print("Received response from Gemini Vision API")
         
@@ -96,10 +108,19 @@ class GeminiService(AIService):
         
         # Then analyze the transcription
         print("Starting transcription analysis")
-        response = await self.model.generate_content_async([
-            f"{prompt}\n\nTranscription: {transcription}"
-        ])
-        
+        response = await self.client.aio.models.generate_content(
+            model=self.model,
+            contents=[
+                f"{prompt}\n\nTranscription: {transcription}"
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                thinking_config=types.ThinkingConfig(
+                    include_thoughts=False, thinkingBudget=0
+                )
+            )
+        )
+
         print("Received response from Gemini for audio analysis")
         
         try:
@@ -133,7 +154,7 @@ class GeminiService(AIService):
         Get song recommendations based on analyzed features
         """
         print("Starting song recommendation analysis")
-        print(f"Comparing songs: {song_1.title} vs {song_2.title}")
+        # print(f"Comparing songs: {song_1.title} vs {song_2.title}")
         
         # Format the prompt with song details
         try:
@@ -154,17 +175,28 @@ class GeminiService(AIService):
             print(f"Error formatting prompt: {e}")
             return 0
         
-        response = await self.model.generate_content_async([
-            prompt,
-            """ Provide your response in JSON with the following structure: 
-            { 
-                "winner": "1" or "2",
-                "reason": "Explanation of why the winning song is better, max 2 sentences"
-            } """
-        ])
+        response = await self.client.aio.models.generate_content(
+            model=self.model,
+            contents=[
+                prompt,
+                """ Provide your response in JSON with the following structure: 
+                { 
+                    "song_1_analysis": "One sentence analysis of song 1",
+                    "song_2_analysis": "One sentence analysis of song 2",
+                    "winner": "1" or "2",
+                    "reason": "One sentence explanation of why the winning song is better"
+                } """
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                thinking_config=types.ThinkingConfig(
+                    include_thoughts=False, thinkingBudget=0
+                )
+            )
+        )
         
         print("Received response from Gemini for song recommendation")
-        print(f"Raw response content: {response.text}")
+        print(f"GEMINI Raw response content for {song_1.title} vs {song_2.title}: {response.text}")
         
         try:
             analysis = json.loads(response.text)
@@ -180,4 +212,98 @@ class GeminiService(AIService):
             # Fallback to simple parsing if JSON parsing fails
             recommendation = response.text.strip()
             print(f"Using fallback parsing for content: {recommendation}")
-            return 0 if "song1" in recommendation.lower() else 1 
+            return 0 if "1" in recommendation.lower() else 1
+
+    async def generate_user_context(
+        self,
+        name: str,
+        top_songs_short: list,
+        top_songs_medium: list,
+        top_songs_long: list,
+        top_artists_short: list,
+        top_artists_medium: list,
+        top_artists_long: list,
+        recently_played: list
+    ) -> dict:
+        """
+        Generate a user context summary using the LLM and the user_context prompt.
+        """
+        prompt = self._load_prompt("user_context.txt")
+        # Format the prompt with user data
+        prompt = prompt.format(
+            top_songs_short=top_songs_short,
+            top_songs_medium=top_songs_medium,
+            top_songs_long=top_songs_long,
+            top_artists_short=top_artists_short,
+            top_artists_medium=top_artists_medium,
+            top_artists_long=top_artists_long,
+            recently_played=recently_played
+        )
+        print("Prompt for user context", prompt)
+        response = await self.client.aio.models.generate_content(
+            model=self.model,
+            contents=[
+            prompt,
+            """
+            Respond ONLY with a valid JSON object in the following format:
+            {
+                "description": "<2-3 sentence summary of their music tastes and tendencies>",
+                "genres": ["<genre1>", "<genre2>", ...],
+            }"""
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                thinking_config=types.ThinkingConfig(
+                    include_thoughts=False, thinkingBudget=0
+                )
+            )
+        )
+        try:
+            user_context = json.loads(response.text)
+            return user_context
+        except Exception as e:
+            print(f"Failed to parse user context JSON: {e}")
+            print(f"Raw content: {response.text}")
+            return {}
+
+    async def generate_fitness_scores(self, song: Pool_Song, weather_data: dict, user_context: dict, image_analysis: dict):
+        prompt = self._load_prompt("fit_func.txt")
+        prompt = prompt.format(
+            song_title=song.title,
+            song_artist=song.artist,
+            song_popularity=song.popularity_score,
+            song_duration=song.duration_ms,
+            song_release_date=song.release_date,
+            weather_data=weather_data,
+            user_context=user_context,
+            image_analysis=image_analysis
+        )
+        response = await self.client.aio.models.generate_content(
+            model=self.model,
+            contents=[
+            prompt,
+            """
+            Provide your response in JSON with the following structure:
+            {
+                "contextual_relevance_score": <0-100>,
+                "musical_quality_score": <0-100>,
+                "fitness_score": <0-100>,
+                "reasoning": "<1 sentence summary on why the scores were assigned>"
+            }
+            """
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                thinking_config=types.ThinkingConfig(
+                    include_thoughts=False, thinkingBudget=0
+                )
+            )
+        )
+        try:
+            json_data = json.loads(response.text)
+            fitness_score = json_data.get("fitness_score", 0)
+            return fitness_score
+        except Exception as e:
+            print(f"Failed to parse fitness scores JSON: {e}")
+            print(f"Raw content: {response.text}")
+            return 0 
