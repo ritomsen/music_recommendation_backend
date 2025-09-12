@@ -162,7 +162,8 @@ class RecommendationService:
 
     async def make_candidate_pool(self, session_id: str):
         print("Creating candidate pool")
-        genres = self.image_analysis.get("genres", [])
+        # genres = self.image_analysis.get("genres", [])
+        genres = []
         print(f"Using genres from image analysis: {genres}")
         candidate_pool = CandidatePool(genres, session_id, spotify_service)
         await candidate_pool.add_songs_parallel()
@@ -209,7 +210,7 @@ class RecommendationService:
         tasks = [GeneticAlgorithm(**base_kwargs).run() for _ in range(num_runs)]
         winners = await asyncio.gather(*tasks)
         #TODO should have unified cache across algos, then can increase popoulation size
-        
+
         # Count frequency of each winner and calculate percentage scores
         from collections import Counter
         winner_counts = Counter(winners)

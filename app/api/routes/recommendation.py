@@ -9,6 +9,7 @@ from app.utils.file_handlers import save_upload_file, read_file_content
 from app.services.service_instances import openai_service
 import os
 import tempfile
+import asyncio
 
 router = APIRouter()
 recommendation_service = RecommendationService()
@@ -51,21 +52,28 @@ async def get_song_recommendations(
                 audio_data = await read_file_content(audio_path)
 
             time_prepare_start = time.time()
-            # Prepare the recommendation service with all available data
-            await recommendation_service.prepare(
-                image_data=image_data,
-                audio_data=audio_data,
-                location=location,
-                session_id=session_id
-            )
-            print("Finished preparing recommendation service")
-            time_prepare_end = time.time()
-            print("Prepare Time", time_prepare_end - time_prepare_start)
             time_make_candidate_pool_start = time.time()
-            # Create candidate pool based on analyzed features
-            candidate_pool = await recommendation_service.make_candidate_pool(
-                session_id=session_id
+            # Run prepare and candidate pool creation in parallel
+            prepare_task = asyncio.create_task(
+                recommendation_service.prepare(
+                    image_data=image_data,
+                    audio_data=audio_data,
+                    location=location,
+                    session_id=session_id
+                )
             )
+            candidate_pool_task = asyncio.create_task(
+                recommendation_service.make_candidate_pool(
+                    session_id=session_id
+                )
+            )
+            _, candidate_pool = await asyncio.gather(prepare_task, candidate_pool_task)
+            print("Finished preparing recommendation service")
+            now_ts = time.time()
+            time_prepare_end = now_ts
+            time_make_candidate_pool_end = now_ts
+            print("Prepare Time", time_prepare_end - time_prepare_start)
+            print("Candidate Pool Time", time_make_candidate_pool_end - time_make_candidate_pool_start)
 
             # MIGHT NEED TO REMOVE THIS
             # MAKES IT SO I DON"T HAVE TOO BIG OF A TOURNAMENT
@@ -75,8 +83,7 @@ async def get_song_recommendations(
                 print(f"Shuffling candidate pool from {len(candidate_pool)} to {max_size}")
                 random.shuffle(candidate_pool)
                 candidate_pool = candidate_pool[:max_size]
-            time_make_candidate_pool_end = time.time()
-            print("Candidate Pool Time", time_make_candidate_pool_end - time_make_candidate_pool_start)
+            # times already captured above after both tasks completed
             time_find_recommendations_start = time.time()
             # Get recommendations using the candidate pool
             recommendations = await recommendation_service.find_recommendations(candidate_pool)
@@ -142,23 +149,27 @@ async def get_song_recommendations_genetic(
                 audio_data = await read_file_content(audio_path)
 
             time_prepare_start = time.time()
-            # Prepare the recommendation service with all available data
-            await recommendation_service.prepare(
-                image_data=image_data,
-                audio_data=audio_data,
-                location=location,
-                session_id=session_id
-            )
-            print("Finished preparing recommendation service")
-            time_prepare_end = time.time()
-            print("Prepare Time", time_prepare_end - time_prepare_start)
-            
             time_make_candidate_pool_start = time.time()
-            # Create candidate pool based on analyzed features
-            candidate_pool = await recommendation_service.make_candidate_pool(
-                session_id=session_id
+            # Run prepare and candidate pool creation in parallel
+            prepare_task = asyncio.create_task(
+                recommendation_service.prepare(
+                    image_data=image_data,
+                    audio_data=audio_data,
+                    location=location,
+                    session_id=session_id
+                )
             )
-            time_make_candidate_pool_end = time.time()
+            candidate_pool_task = asyncio.create_task(
+                recommendation_service.make_candidate_pool(
+                    session_id=session_id
+                )
+            )
+            _, candidate_pool = await asyncio.gather(prepare_task, candidate_pool_task)
+            print("Finished preparing recommendation service")
+            now_ts = time.time()
+            time_prepare_end = now_ts
+            time_make_candidate_pool_end = now_ts
+            print("Prepare Time", time_prepare_end - time_prepare_start)
             print("Candidate Pool Time", time_make_candidate_pool_end - time_make_candidate_pool_start)
             
             time_find_recommendations_start = time.time()
