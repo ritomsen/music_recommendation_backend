@@ -6,13 +6,12 @@ from google import genai
 from google.genai import types
 
 from app.models.song import Pool_Song
-from app.services.ai_service import AIService
 from app.core.config import settings
 import base64
 import io
 
 #TODO Make an virtual class that gemini and open ai inherit from 
-class GeminiService(AIService):
+class GeminiService():
     def __init__(self):
         print("Initializing GeminiService")
         self.client = genai.Client(api_key=settings.GEMINI_API_KEY)

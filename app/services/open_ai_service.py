@@ -6,7 +6,6 @@ from pathlib import Path
 import aiohttp
 from openai import AsyncOpenAI
 from app.models.song import Pool_Song
-from app.services.ai_service import AIService
 from app.core.config import settings
 import base64
 import io
@@ -15,7 +14,7 @@ import pillow_heif
 import magic  # Add this import for better file type detection
 
 #TODO Make an virtual class that gemini and open ai inherit from 
-class OpenAIService(AIService):
+class OpenAIService():
     def __init__(self):
         print("Initializing OpenAIService")
         self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
