@@ -185,5 +185,3 @@ Some tests or manual flows may require valid credentials and a logged-in Spotify
 - Prompts live in `app/prompts/*` and are loaded by the LLM services.
 
 ---
-
-Maintained as part of the `music_recommendation` project. Contributions welcome!
