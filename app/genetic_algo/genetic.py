@@ -107,7 +107,8 @@ class GeneticAlgorithm:
             child1 = self._mutate_song(survivor)
             child2 = self._mutate_song(survivor)
             next_generation.extend([child1, child2])
-        
+            #TODO could make more interesting repopulation algo 
+            
         # If we have too many songs, randomly remove some
         if len(next_generation) > self.population_size:
             next_generation = random.sample(next_generation, self.population_size)

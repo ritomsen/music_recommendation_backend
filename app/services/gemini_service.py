@@ -87,7 +87,7 @@ class GeminiService(AIService):
                 "energy_level": "medium",
                 "musical_characteristics": {}
             }
-
+    #TODO Not finished
     async def analyze_audio(self, audio_data: bytes) -> dict:
         """
         Analyze audio using Gemini API
@@ -127,10 +127,7 @@ class GeminiService(AIService):
             analysis = json.loads(response.text)
             print(f"Successfully parsed audio analysis: {analysis}")
             return {
-                "tempo": analysis.get("tempo", "medium"),
-                "genre": analysis.get("genre", "unknown"),
-                "energy_level": analysis.get("energy_level", "medium"),
-                "technical_details": analysis.get("technical_details", {})
+                "text": analysis.get("text", ""),
             }
         except json.JSONDecodeError as e:
             print(f"Failed to parse audio analysis JSON: {e}")
@@ -138,10 +135,7 @@ class GeminiService(AIService):
             content = response.text
             print(f"Using fallback parsing for content: {content}")
             return {
-                "tempo": "medium" if "medium" in content.lower() else "fast",
-                "genre": "rock" if "rock" in content.lower() else "pop",
-                "energy_level": "medium",
-                "technical_details": {}
+                "text": "text" if "text" in content.lower() else "text",
             }
     
     async def get_recommendation(
