@@ -186,7 +186,6 @@ class RecommendationService:
         
         Args:
             candidate_pool: List of Pool_Song objects to choose from
-            num_recommendations: Number of recommendations to return
             
         Returns:
             List of recommended Pool_Song objects
@@ -194,32 +193,34 @@ class RecommendationService:
         print("Finding recommendations using genetic algorithm")
         
         # Initialize genetic algorithm with current context
-        genetic_algo = GeneticAlgorithm(
+        base_kwargs = dict(
             candidate_pool=candidate_pool,
-            population_size=30,  # Smaller population for faster convergence
+            population_size=30,
             mutation_rate=0.15,
-            generations=12,  # Fewer generations since we're doing multiple runs
+            generations=12,
             weather_data=self.location_weather_analysis,
             user_context=self.user_context,
             image_analysis=self.image_analysis,
-            use_openai=False
+            use_openai=False,
         )
+
+        # Run 5 genetic algorithm instances in parallel and collect the winners
+        num_runs = 5
+        tasks = [GeneticAlgorithm(**base_kwargs).run() for _ in range(num_runs)]
+        winners = await asyncio.gather(*tasks)
+        #TODO should have unified cache across algos, then can increase popoulation size
         
-        # Run multiple genetic algorithm iterations to get diverse recommendations
+        # Count frequency of each winner and calculate percentage scores
+        from collections import Counter
+        winner_counts = Counter(winners)
+        total_wins = len(winners)
+        
+        # Create recommendations with weighted scores based on frequency
         recommendations = []
-        seen_songs = set()
-        num_recommendations = 1 #TODO Make genetic algo run multiple times in parallel
-        for i in range(num_recommendations):
-            best_song = await genetic_algo.run()
-            
-            # If we haven't seen this song before, add it to recommendations
-            if best_song not in seen_songs:
-                recommendations.append((best_song, 1.0))
-                seen_songs.add(best_song)
-            
-            # If we've found enough unique recommendations, break
-            if len(recommendations) >= num_recommendations:
-                break
+        for song, count in winner_counts.items():
+            if song is not None:
+                percentage = (count / total_wins) * 100
+                recommendations.append((song, percentage))
         
         print(f"Found {len(recommendations)} recommendations using genetic algorithm")
         return recommendations
