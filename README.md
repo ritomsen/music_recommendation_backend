@@ -181,7 +181,7 @@ Some tests or manual flows may require valid credentials and a logged-in Spotify
 - **Rate limits / API keys**: OpenAI, Google, and Spotify keys may rate limit; use appropriate models and quotas.
 
 ## Notes for development
-- Candidate pool may be truncated to a max size of 75 in `recommendation.py` to keep tournaments fast.
+- Candidate pool is truncated to a max size of 75 in `recommendation.py` to keep tournaments fast.
 - Prompts live in `app/prompts/*` and are loaded by the LLM services.
 
 ---
