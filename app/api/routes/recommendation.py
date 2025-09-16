@@ -6,7 +6,7 @@ from typing import Optional, List
 from app.models.song import Pool_Song
 from app.rec_service.recommendation import RecommendationService
 from app.utils.file_handlers import save_upload_file, read_file_content
-from app.services.service_instances import openai_service
+from app.services.service_instances import openai_service, spotify_service
 import os
 import tempfile
 import asyncio
@@ -100,6 +100,13 @@ async def get_song_recommendations(
             print(f"Time taken to prepare: {time_prepare_end - time_prepare_start} seconds")
             print(f"Time taken to make candidate pool: {time_make_candidate_pool_end - time_make_candidate_pool_start} seconds")
             print(f"Time taken to find recommendations: {time_find_recommendations_end - time_find_recommendations_start} seconds")
+            # Queue the recommended songs on the user's active Spotify device
+            try:
+                songs_only = [song for (song, _score) in recommendations]
+                await spotify_service.add_tracks_to_queue(session_id, songs_only)
+            except Exception as e:
+                # Do not block response on queue failures
+                print(f"Error queueing recommended songs: {e}")
             
             return recommendations
 
@@ -188,6 +195,13 @@ async def get_song_recommendations_genetic(
             print(f"Time taken to prepare: {time_prepare_end - time_prepare_start} seconds")
             print(f"Time taken to make candidate pool: {time_make_candidate_pool_end - time_make_candidate_pool_start} seconds")
             print(f"Time taken to find recommendations GENETIC: {time_find_recommendations_end - time_find_recommendations_start} seconds")
+            # Queue the recommended songs on the user's active Spotify device
+            try:
+                songs_only = [song for (song, _score) in recommendations]
+                await spotify_service.add_tracks_to_queue(session_id, songs_only)
+            except Exception as e:
+                # Do not block response on queue failures
+                print(f"Error queueing recommended songs (genetic): {e}")
             
             return recommendations
 

@@ -10,6 +10,7 @@ import math
 import asyncio
 
 from app.models.song import SpotifyArtist, Pool_Song
+from urllib.parse import urlparse
 
 
 MAX_LIMIT = 50
@@ -18,7 +19,7 @@ class SpotifyService:
         self.client_id = settings.SPOTIFY_CLIENT_ID
         self.client_secret = settings.SPOTIFY_CLIENT_SECRET
         self.redirect_uri = settings.SPOTIFY_REDIRECT_URI
-        self.scope = "user-read-private user-read-email user-top-read user-read-recently-played user-library-read"
+        self.scope = "user-read-private user-read-email user-top-read user-read-recently-played user-library-read user-modify-playback-state"
         self.cache_path = "spotify_cache"
         self.user_tokens = {}  # Store tokens for multiple users
 
@@ -161,6 +162,42 @@ class SpotifyService:
                 print("No albums found from sampled tracks of top tracks")
             print("Got Results", results)
         return results
+
+    def _build_track_uri_from_link(self, spotify_link: str) -> str:
+        """Convert a Spotify track link to a track URI acceptable by the queue API."""
+        try:
+            parsed = urlparse(spotify_link)
+            path = parsed.path or ""
+            # Expecting path like /track/<id>
+            segments = [seg for seg in path.split('/') if seg]
+            track_id = segments[-1] if segments else ""
+            # Defensive split in case of stray query-style suffix
+            if "?" in track_id:
+                track_id = track_id.split("?")[0]
+            return f"spotify:track:{track_id}"
+        except Exception:
+            # Fall back to original link if parsing fails (Spotipy will error and be caught by caller)
+            return spotify_link
+
+    async def add_tracks_to_queue(self, session_id: str, songs: list[Pool_Song]) -> bool:
+        """Add a list of songs to the user's queue on their active device.
+
+        Returns True if all adds succeed, False if any fail.
+        """
+        spotify = self.get_user_spotify_client(session_id)
+        if not spotify:
+            return False
+
+        all_ok = True
+        for song in songs:
+            try:
+                uri = self._build_track_uri_from_link(song.spotify_link)
+                # Use a thread to avoid blocking
+                await asyncio.to_thread(spotify.add_to_queue, uri)
+            except Exception as e:
+                print(f"Failed to queue track {song.spotify_link}: {e}")
+                all_ok = False
+        return all_ok
 
     async def get_user_top_artists(self, session_id: str, time_range: str = "medium_term", limit: int = 20) -> List[Dict]:
         """Get a user's top artists"""
